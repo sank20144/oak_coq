@@ -1,30 +1,128 @@
 From stdpp Require Import base list.
+
 (* Strictly only dealing with 2MB pages here *)
 
 (* These should only be 2^64 *)
 (* If we make these a bitarray of size 64, we can embed the flags inside the pte_paddr itself *)
 Definition p_addr := nat.
+Definition v_addr := nat.
 
-Record v_addr := {
-  pml4_idx : nat ;
-  pdp_idx : nat ;
-  pd_idx : nat ;
-  pt_idx : nat ;
-  offset : nat ;
-}.
-
-Inductive Syscall :=
+(* Inductive Syscall :=
 | sc_mmap.
 
-Definition BitArray (size: nat) := list bool. (* I think this is the correct struct for this *)
+Definition BitArray (size: nat) := list bool. I think this is the correct struct for this *)
 
 Record PhysFrameRange := {
   pfr_start : p_addr ;
   pfr_end : p_addr ;
 }.
 
+Record PhysFrame := {
+  pf_addr : p_addr ;
+}.
+
+Record Process := {
+  p_pml4 : PhysFrame ;
+  p_pid : nat ;
+  p_ksp : v_addr ; (* Kernel stack pointer *)
+  p_usp : v_addr ; (* User stack pointer  *)
+}.
+
+Record MemoryState := {
+  valid_frames : list PhysFrame;
+  allocated_frames : list PhysFrame;
+  frame_owners : list (PhysFrame * Process)
+}.
+(* Frame equality check *)
+Definition frame_eq (f1 f2: PhysFrame) : bool :=
+  Nat.eqb f1.(pf_addr) f2.(pf_addr).
+
+(* Process equality check (based on PID) *)
+Definition proc_eq (p1 p2: Process) : bool :=
+  Nat.eqb p1.(p_pid) p2.(p_pid).
+
+(* Check if a frame is in a list of frames *)
+Fixpoint frame_in_list (frame: PhysFrame) (frames: list PhysFrame) : bool :=
+  match frames with
+  | [] => false
+  | curr :: rest => 
+      if frame_eq frame curr 
+      then true
+      else frame_in_list frame rest
+  end.
+
+(* Find owner of a frame *)
+Fixpoint get_frame_owner (frame: PhysFrame) (owners: list (PhysFrame * Process)) : option Process :=
+  match owners with
+  | [] => None
+  | (curr_frame, curr_proc) :: rest => 
+      if frame_eq frame curr_frame
+      then Some curr_proc
+      else get_frame_owner frame rest
+  end.
+(* Add or update a frame owner in the list *)
+Fixpoint set_frame_owner (frame: PhysFrame) (proc: Process) 
+                        (owners: list (PhysFrame * Process)) 
+                        : list (PhysFrame * Process) :=
+  match owners with
+  | [] => [(frame, proc)]  
+  | (curr_frame, curr_proc) :: rest =>
+      if frame_eq frame curr_frame
+      then (frame, proc) :: set_frame_owner frame proc rest  
+      else (curr_frame, curr_proc) :: set_frame_owner frame proc rest  
+  end.
+
+(* Remove a frame from a list *)
+Fixpoint remove_frame (frame: PhysFrame) (frames: list PhysFrame) : list PhysFrame :=
+  match frames with
+  | [] => [] 
+  | curr :: rest => 
+      if frame_eq frame curr
+      then remove_frame frame rest 
+      else curr :: remove_frame frame rest  
+  end.
+
+(* Remove ownership of a frame *)
+Fixpoint remove_frame_owner (frame: PhysFrame) (owners: list (PhysFrame * Process)) 
+                           : list (PhysFrame * Process) :=
+  match owners with
+  | [] => [] 
+  | (curr_frame, curr_proc) :: rest =>
+      if frame_eq frame curr_frame 
+      then remove_frame_owner frame rest  
+      else (curr_frame, curr_proc) :: remove_frame_owner frame rest  
+  end.
+
+(* Allocation operation *)
+Definition alloc (state: MemoryState) (proc: Process) (frame: PhysFrame) : option MemoryState :=
+  if andb (frame_in_list frame state.(valid_frames))
+          (negb (frame_in_list frame state.(allocated_frames)))
+  then 
+    Some {|
+      valid_frames := state.(valid_frames);
+      allocated_frames := frame :: state.(allocated_frames);
+      frame_owners := set_frame_owner frame proc state.(frame_owners)
+    |}
+  else None.
+
+(* If 2 processes aren't equal, then allocating a frame for a memory state 
+'state' should return Some new state 'state1' and allocating the same frame for
+another process in new state 'state1' should return None *)
+Theorem no_double_allocation: forall state state1 p1 p2 frame,
+  p1.(p_pid) <> p2.(p_pid) ->
+  alloc state p1 frame = Some state1 ->
+  alloc state1 p2 frame = None.
+  Admitted.
+
+
+
+
+(* Process related things *)
+
+(* This is the struct that will be used to keep track of the physical memory frames *)
+
 (* Used to keep track of the physical memory frames *)
-Record BitMapAllocator := {
+(* Record BitMapAllocator := {
 (* 4096 was what was used in the kernel for size which is tracking 512 gigs of memory ((4096 * 64)Frames * 2MB). So this should realistically be 262,144 (4096 * 64) since we use a bool list*) 
   allocated : BitArray 4096; 
   valid : BitArray 4096;
@@ -118,7 +216,7 @@ Definition allocate_frame (bm: BitMapAllocator) : option (BitMapAllocator * p_ad
       Some (new_bm, bm.(range).(pfr_start) + idx)
   end.
 
-Compute (allocate_frame {| allocated := [true; false; true]; valid := [true; true; true]; range := {| pfr_start := 0; pfr_end := 2 |} |}).
+Compute (allocate_frame {| allocated := [false; false; true]; valid := [true; true; true]; range := {| pfr_start := 0; pfr_end := 0 |} |}).
 
 (* Page table related things *)
 
@@ -140,34 +238,27 @@ Record PageTable := {
   level : PTLevel (* 4 = PML4, 3 = PDP, 2 = PD, 1 = PT *)
 }.
 
-Definition get_pt_index (addr: v_addr) (level: PTLevel) : nat :=
+(* Definition get_pt_index (addr: v_addr) (level: PTLevel) : nat :=
   match level with
   | PML4_LEVEL => addr.(pml4_idx)
   | PDP_LEVEL => addr.(pdp_idx)
   | PD_LEVEL => addr.(pd_idx)
   | PT_LEVEL => addr.(pt_idx)
-  end.
+  end. *)
 
 
 (* TODO: Page table walk *)
 
 (**********)
 
-(* Process related things *)
 
-Record Process := {
-  p_pml4 : {pt : PageTable | pt.(level) = PML4_LEVEL} ;
-  p_pid : nat ;
-  p_ksp : v_addr ; (* Kernel stack pointer *)
-  p_usp : v_addr ; (* User stack pointer *)
-}.
 
 (*************)
 
 (* Main syscall related things *)
 
 (* Base flags *)
-Definition base_pt_flags := [Present; UserAccessible; Encrypted].
+Definition base_pt_flags : list PageTableFlag := [Present; UserAccessible; Encrypted].
 
 (* Main protection flags to page table flags conversion *)
 Definition prot_to_ptflags (prot: list MmapProtectionFlags) : list PageTableFlag :=
@@ -186,6 +277,6 @@ Definition prot_to_ptflags (prot: list MmapProtectionFlags) : list PageTableFlag
 -> Finds and allocate pages in the users page tables and finds frames to back them up
 -> Maps them -> flush tlb -> return pointer to virtual memory start *)
 
-Definition Mmap := nat.
+Definition Mmap := nat. *)
  (* TODO *)
   
