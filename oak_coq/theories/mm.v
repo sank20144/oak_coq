@@ -105,14 +105,16 @@ Definition alloc (state: MemoryState) (proc: Process) (frame: PhysFrame) : optio
     |}
   else None.
 
-(* If 2 processes aren't equal, then allocating a frame for a memory state 
+(* For 2 different processes, when allocating a frame for a memory state 
 'state' should return Some new state 'state1' and allocating the same frame for
 another process in new state 'state1' should return None *)
 Theorem no_double_allocation: forall state state1 p1 p2 frame,
   p1.(p_pid) <> p2.(p_pid) ->
   alloc state p1 frame = Some state1 ->
   alloc state1 p2 frame = None.
+Proof.
   Admitted.
+
 
 
 
