@@ -28,6 +28,7 @@ Record Process := {
   p_usp : v_addr ; (* User stack pointer  *)
 }.
 
+(* Basically a refined bitmap allocator *)
 Record MemoryState := {
   valid_frames : list PhysFrame;
   allocated_frames : list PhysFrame;
