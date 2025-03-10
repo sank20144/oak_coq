@@ -12,13 +12,13 @@ Definition v_addr := nat.
 
 Definition BitArray (size: nat) := list bool. I think this is the correct struct for this *)
 
-Record PhysFrameRange := {
-  pfr_start : p_addr ;
-  pfr_end : p_addr ;
-}.
-
 Record PhysFrame := {
   pf_addr : p_addr ;
+}.
+
+Record PhysFrameRange := {
+  pfr_start : PhysFrame ;
+  pfr_end : PhysFrame ;
 }.
 
 Record Process := {
@@ -116,6 +116,18 @@ Theorem no_double_allocation: forall state state1 p1 p2 frame,
 Proof.
   Admitted.
 
+
+(* Deallocating frame - not considering range *)
+Definition dealloc (state: MemoryState) (frame: PhysFrame) : option MemoryState :=
+  if andb (frame_in_list frame state.(valid_frames))
+          (frame_in_list frame state.(allocated_frames))
+  then 
+    Some {|
+      valid_frames := state.(valid_frames);
+      allocated_frames := remove_frame frame state.(allocated_frames);
+      frame_owners := remove_frame_owner frame state.(frame_owners)
+    |}
+  else None.
 
 
 
