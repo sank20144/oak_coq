@@ -1,4 +1,4 @@
-From stdpp Require Import base list.
+From stdpp Require Import base list propset gmap.
 
 (* Strictly only dealing with 2MB pages here *)
 
@@ -22,11 +22,12 @@ Record PhysFrameRange := {
 }.
 
 Record Process := {
-  p_pml4 : PhysFrame ;
+  (* p_pml4 : PhysFrame ; *)
   p_pid : nat ;
-  p_ksp : v_addr ; (* Kernel stack pointer *)
-  p_usp : v_addr ; (* User stack pointer  *)
+  (* p_ksp : v_addr ; (* Kernel stack pointer *)
+  p_usp : v_addr ; User stack pointer  *)
 }.
+
 
 (* Basically a refined bitmap allocator *)
 Record MemoryState := {
@@ -115,6 +116,8 @@ Theorem no_double_allocation: forall state state1 p1 p2 frame,
   alloc state1 p2 frame = None.
 Proof.
   Admitted.
+  
+
 
 
 (* Deallocating frame - not considering range *)
