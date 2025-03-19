@@ -58,6 +58,13 @@ Proof.
   reflexivity.
 Qed.
 
+Lemma Process_eq:
+forall p1 p2, p1 = p2 -> p1.(p_pid) = p2.(p_pid).
+Proof.
+  intros p1 p2 H.
+  congruence.
+Qed.
+
 (* Basically a refined bitmap allocator *)
 Record MemoryState := {
   valid_frames : list PhysFrame;
