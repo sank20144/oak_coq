@@ -186,7 +186,6 @@ forall state state1 proc frame,
   allocate_frame state proc frame = Some state1 ->
   frame_in_list frame state1.(allocated_frames) = true.
 Proof.
-  Proof.
   intros state state1 proc frame H.
   unfold allocate_frame in H.
   destruct (andb (frame_in_list frame state.(valid_frames))
