@@ -243,6 +243,29 @@ Fixpoint remove_frame (frame: PhysFrame) (frames: list PhysFrame) : list PhysFra
       else curr :: remove_frame frame rest  
   end.
 
+Lemma remove_frame_absence:
+forall fs frame, 
+  frame_in_list frame (remove_frame frame fs) = false.
+Proof.
+  intros fs frame.
+  induction fs as [|curr_frame rest IHrest].
+  - simpl. reflexivity.
+  - simpl.
+    destruct (frame_eq frame curr_frame) eqn:Heq.
+    + apply IHrest.
+    + simpl. rewrite Heq. apply IHrest.
+Qed.
+
+
+Lemma remove_frame_correct: forall frame frames,
+  frame_in_list frame (remove_frame frame (frame :: frames)) = false.
+Proof.
+  intros frame frames.
+  simpl.
+  rewrite frame_eq_refl.
+  apply remove_frame_absence.
+Qed.
+
 (* Remove ownership of a frame *)
 Fixpoint remove_frame_owner (frame: PhysFrame) (owners: list (PhysFrame * Process)) 
                            : list (PhysFrame * Process) :=
@@ -253,6 +276,19 @@ Fixpoint remove_frame_owner (frame: PhysFrame) (owners: list (PhysFrame * Proces
       then remove_frame_owner frame rest  
       else (curr_frame, curr_proc) :: remove_frame_owner frame rest  
   end.
+
+Lemma remove_frame_owner_correct:
+forall frame owners,
+  get_frame_owner frame (remove_frame_owner frame owners) = None.
+Proof.
+  intros frame owners.
+  induction owners as [|[curr_frame curr_proc] rest IHrest].
+  - simpl. reflexivity.
+  - simpl.
+    destruct (frame_eq frame curr_frame) eqn:H.
+    + apply IHrest.
+    + simpl. rewrite H. apply IHrest.
+Qed.
 
 (* Deallocating frame - not considering range *)
 Definition dealloc (state: BitmapAllocator) (frame: PhysFrame) : option BitmapAllocator :=
@@ -266,7 +302,21 @@ Definition dealloc (state: BitmapAllocator) (frame: PhysFrame) : option BitmapAl
     |}
   else None.
 
-
+Lemma dealloc_correct:
+forall state state1 frame,
+  dealloc state frame = Some state1 ->
+  frame_in_list frame state1.(allocated_frames) = false.
+Proof.
+  intros state state1 frame H.
+  unfold dealloc in H.
+  destruct (andb (frame_in_list frame state.(valid_frames))
+                (frame_in_list frame state.(allocated_frames))) eqn:Hcond.
+  - injection H as H_eq.
+    subst state1.
+    simpl.
+    apply remove_frame_absence.
+  - discriminate H.
+Qed.
 
 
 (* Process related things *)
