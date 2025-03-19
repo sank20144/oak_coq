@@ -65,8 +65,7 @@ Proof.
   congruence.
 Qed.
 
-(* Basically a refined bitmap allocator *)
-Record MemoryState := {
+Record BitmapAllocator := {
   valid_frames : list PhysFrame;
   allocated_frames : list PhysFrame;
   frame_owners : list (PhysFrame * Process)
@@ -177,7 +176,7 @@ Proof.
 Qed.
 
 (* Allocation operation *)
-Definition allocate_frame (state: MemoryState) (proc: Process) (frame: PhysFrame) : option MemoryState :=
+Definition allocate_frame (state: BitmapAllocator) (proc: Process) (frame: PhysFrame) : option BitmapAllocator :=
   if andb (frame_in_list frame state.(valid_frames))
           (negb (frame_in_list frame state.(allocated_frames)))
   then 
@@ -187,6 +186,7 @@ Definition allocate_frame (state: MemoryState) (proc: Process) (frame: PhysFrame
       frame_owners := set_frame_owner frame proc state.(frame_owners)
     |}
   else None.
+
 
 Lemma allocate_frame_correct: 
 forall state state1 proc frame,
@@ -255,7 +255,7 @@ Fixpoint remove_frame_owner (frame: PhysFrame) (owners: list (PhysFrame * Proces
   end.
 
 (* Deallocating frame - not considering range *)
-Definition dealloc (state: MemoryState) (frame: PhysFrame) : option MemoryState :=
+Definition dealloc (state: BitmapAllocator) (frame: PhysFrame) : option BitmapAllocator :=
   if andb (frame_in_list frame state.(valid_frames))
           (frame_in_list frame state.(allocated_frames))
   then 
