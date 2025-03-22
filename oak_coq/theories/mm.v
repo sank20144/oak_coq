@@ -16,6 +16,31 @@ Record PhysFrame := {
   pf_addr : p_addr ;
 }.
 
+Record VirtPage := {
+  vp_addr : v_addr ;
+}.
+
+Definition PageTable := v_addr -> option p_addr.
+
+Lemma VirtPage_eq:
+forall v1 v2, v1 = v2 -> v1.(vp_addr) = v2.(vp_addr).
+Proof.
+  intros v1 v2 H.
+  rewrite H.
+  reflexivity.
+Qed.
+
+Lemma VirtPage_neq:
+forall v1 v2, v1 <> v2 -> v1.(vp_addr) <> v2.(vp_addr).
+Proof.
+  intros v1 v2 H.
+  contradict H.
+  destruct v1, v2.
+  simpl in *.
+  rewrite H.
+  reflexivity.
+Qed.
+
 Lemma PhysFrame_neq:
 forall f1 f2, f1 <> f2 -> f1.(pf_addr) <> f2.(pf_addr).
 Proof.
@@ -41,23 +66,11 @@ Record PhysFrameRange := {
 }.
 
 Record Process := {
-  (* p_pml4 : PhysFrame ; *)
+  p_pml4 : PageTable ; 
   p_pid : nat ;
   (* p_ksp : v_addr ; (* Kernel stack pointer *)
   p_usp : v_addr ; User stack pointer  *)
 }.
-
-Lemma Process_neq:
-forall p1 p2, p1 <> p2 -> p1.(p_pid) <> p2.(p_pid).
-Proof.
-  intros p1 p2 H.
-  contradict H.
-  destruct p1, p2.
-  simpl in *.
-  rewrite H.
-  reflexivity.
-Qed.
-
 Lemma Process_eq:
 forall p1 p2, p1 = p2 -> p1.(p_pid) = p2.(p_pid).
 Proof.
@@ -65,10 +78,32 @@ Proof.
   congruence.
 Qed.
 
+Lemma process_components_determine_equality:
+  forall p1 p2, 
+  p1.(p_pid) = p2.(p_pid) /\ p1.(p_pml4) = p2.(p_pml4) -> p1 = p2.
+Proof.
+  intros p1 p2 [Hpid Hpml4].
+  destruct p1 as [pml4_1 pid_1].
+  destruct p2 as [pml4_2 pid_2].
+  simpl in *.
+  congruence.
+Qed.
+  
+Lemma Process_neq_converse:
+forall p1 p2, 
+  p1.(p_pid) <> p2.(p_pid) -> p1 <> p2.
+Proof.
+  intros p1 p2 Hpid.
+  unfold not. intros Heq.
+  apply Hpid.
+  congruence.
+Qed.
+
 Record BitmapAllocator := {
   valid_frames : list PhysFrame;
   allocated_frames : list PhysFrame;
-  frame_owners : list (PhysFrame * Process)
+  frame_owners : list (PhysFrame * Process);
+  range : PhysFrameRange; 
 }.
 
 (* Frame equality check *)
@@ -100,10 +135,6 @@ Proof.
   unfold frame_eq.
   apply Nat.eqb_sym.
 Qed.
-
-(* Process equality check (based on PID) *)
-Definition proc_eq (p1 p2: Process) : bool :=
-  Nat.eqb p1.(p_pid) p2.(p_pid).
 
 (* Check if a frame is in a list of frames *)
 Fixpoint frame_in_list (frame: PhysFrame) (frames: list PhysFrame) : bool :=
@@ -183,7 +214,8 @@ Definition allocate_frame (state: BitmapAllocator) (proc: Process) (frame: PhysF
     Some {|
       valid_frames := state.(valid_frames);
       allocated_frames := frame :: state.(allocated_frames);
-      frame_owners := set_frame_owner frame proc state.(frame_owners)
+      frame_owners := set_frame_owner frame proc state.(frame_owners);
+      range := state.(range);
     |}
   else None.
 
@@ -243,7 +275,7 @@ Fixpoint remove_frame (frame: PhysFrame) (frames: list PhysFrame) : list PhysFra
       else curr :: remove_frame frame rest  
   end.
 
-Lemma remove_frame_absence:
+Lemma removed_frame_not_in_list:
 forall fs frame, 
   frame_in_list frame (remove_frame frame fs) = false.
 Proof.
@@ -263,7 +295,7 @@ Proof.
   intros frame frames.
   simpl.
   rewrite frame_eq_refl.
-  apply remove_frame_absence.
+  apply removed_frame_not_in_list.
 Qed.
 
 (* Remove ownership of a frame *)
@@ -290,34 +322,162 @@ Proof.
     + simpl. rewrite H. apply IHrest.
 Qed.
 
-(* Deallocating frame - not considering range *)
-Definition dealloc (state: BitmapAllocator) (frame: PhysFrame) : option BitmapAllocator :=
+(* Deallocating frame *)
+Definition deallocate_frame (state: BitmapAllocator) (frame: PhysFrame) : option BitmapAllocator :=
   if andb (frame_in_list frame state.(valid_frames))
           (frame_in_list frame state.(allocated_frames))
   then 
     Some {|
       valid_frames := state.(valid_frames);
       allocated_frames := remove_frame frame state.(allocated_frames);
-      frame_owners := remove_frame_owner frame state.(frame_owners)
+      frame_owners := remove_frame_owner frame state.(frame_owners);
+      range := state.(range);
     |}
   else None.
 
 Lemma dealloc_correct:
 forall state state1 frame,
-  dealloc state frame = Some state1 ->
+  deallocate_frame state frame = Some state1 ->
   frame_in_list frame state1.(allocated_frames) = false.
 Proof.
   intros state state1 frame H.
-  unfold dealloc in H.
+  unfold deallocate_frame in H.
   destruct (andb (frame_in_list frame state.(valid_frames))
                 (frame_in_list frame state.(allocated_frames))) eqn:Hcond.
   - injection H as H_eq.
     subst state1.
     simpl.
-    apply remove_frame_absence.
+    apply removed_frame_not_in_list.
   - discriminate H.
 Qed.
 
+(* Only unallocated frames are allocated *)
+Theorem unallocated_frames_only:
+forall state state1 proc frame,
+  allocate_frame state proc frame = Some state1 ->
+  frame_in_list frame state.(allocated_frames) = false.
+Proof.
+  intros state state1 proc frame H.
+  unfold allocate_frame in H.
+  destruct (andb (frame_in_list frame state.(valid_frames))
+                (negb (frame_in_list frame state.(allocated_frames)))) eqn:Hcond.
+  - injection H as H_eq.
+    apply andb_prop in Hcond.
+    destruct Hcond as [H_allocated Hnot_allocated].
+    apply negb_true_iff in Hnot_allocated.
+    exact Hnot_allocated.
+  - discriminate H.
+Qed.
+
+(* Only valid frames are allocated *)
+Theorem valid_frames_only: 
+forall state state1 proc frame,
+  allocate_frame state proc frame = Some state1 ->
+  frame_in_list frame state.(valid_frames) = true.
+Proof.
+  intros state state1 proc frame H.
+  unfold allocate_frame in H.
+  destruct (andb (frame_in_list frame state.(valid_frames))
+                (negb (frame_in_list frame state.(allocated_frames)))) eqn:Hcond.
+  - injection H as H_eq.
+    apply andb_prop in Hcond.
+    destruct Hcond as [Hvalid Hinvalid].
+    exact Hvalid.
+
+  - discriminate H.
+Qed.
+
+(* Only both valid and unallocated frames are allocated *)
+Theorem valid_unallocated_frames_only_alloc:
+forall state state1 proc frame,
+  allocate_frame state proc frame = Some state1 ->
+  frame_in_list frame state.(valid_frames) = true /\
+  frame_in_list frame state.(allocated_frames) = false.
+Proof.
+  intros state state1 proc frame H.
+  apply valid_frames_only in H as He.
+  split.
+  - exact He.
+  - apply unallocated_frames_only in H as Hee.
+    exact Hee.
+Qed.
+
+(* Only allocated frames are deallocated *) 
+Theorem allocated_frames_only_dealloc: forall state state1 frame,
+  deallocate_frame state frame = Some state1 ->
+  frame_in_list frame state.(allocated_frames) = true.
+Proof.
+  intros.
+  unfold deallocate_frame in H.
+  destruct (andb (frame_in_list frame state.(valid_frames))
+                (frame_in_list frame state.(allocated_frames))) eqn:Hcond.
+  - injection H as H_eq.
+    apply andb_prop in Hcond.
+    destruct Hcond as [Hvalid Hallocated].
+    exact Hallocated.
+  - discriminate H.
+Qed.
+
+(* Only valid frames are deallocated *)
+Theorem valid_frames_only_dealloc:
+forall state state1 frame,
+  deallocate_frame state frame = Some state1 ->
+  frame_in_list frame state.(valid_frames) = true.
+Proof.
+  intros.
+  unfold deallocate_frame in H.
+  destruct (andb (frame_in_list frame state.(valid_frames))
+                (frame_in_list frame state.(allocated_frames))) eqn:Hcond.
+  - injection H as H_eq.
+    apply andb_prop in Hcond.
+    destruct Hcond as [Hvalid Hallocated].
+    exact Hvalid.
+  - discriminate H.
+Qed.
+
+(* Only valid and allocated frames are deallocated *)
+Theorem valid_allocated_frames_only_dealloc: forall state state1 frame,
+  deallocate_frame state frame = Some state1 ->
+  frame_in_list frame state.(valid_frames) = true /\
+  frame_in_list frame state.(allocated_frames) = true.
+Proof.
+  intros.
+  apply allocated_frames_only_dealloc in H as Halloc.
+  apply valid_frames_only_dealloc in H as Hvalid.
+  split.
+  - exact Hvalid.
+  - exact Halloc.
+Qed.
+
+Fixpoint find_free_frame_in_list (valid_frames: list PhysFrame) (allocated_frames: list PhysFrame) : option PhysFrame :=
+  match valid_frames with
+  | [] => None 
+  | curr :: rest =>
+      if frame_in_list curr allocated_frames
+      then find_free_frame_in_list rest allocated_frames
+      else Some curr
+  end.
+
+Definition find_free_frame (state: BitmapAllocator) : option PhysFrame :=
+  find_free_frame_in_list state.(valid_frames) state.(allocated_frames).
+
+Fixpoint allocate_frames (n: nat) (state: BitmapAllocator) (proc: Process) : option BitmapAllocator :=
+  match n with
+  | 0 => Some state
+  | S n' =>
+      match find_free_frame state with
+      | None => None
+      | Some frame =>
+          match allocate_frame state proc frame with
+          | None => None 
+          | Some new_state => allocate_frames n' new_state proc
+          end
+      end
+  end.
+
+Definition Mmap := BitmapAllocator -> Process -> v_addr -> nat -> v_addr.
+
+(* Page table walk *)
 
 (* Process related things *)
 
