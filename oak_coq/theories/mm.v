@@ -352,7 +352,7 @@ Proof.
 Qed.
 
 (* Only unallocated frames are allocated *)
-Theorem unallocated_frames_only:
+Theorem unallocated_frames_only_alloc:
 forall state state1 proc frame,
   allocate_frame state proc frame = Some state1 ->
   frame_in_list frame state.(allocated_frames) = false.
@@ -370,7 +370,7 @@ Proof.
 Qed.
 
 (* Only valid frames are allocated *)
-Theorem valid_frames_only: 
+Theorem valid_frames_only_alloc: 
 forall state state1 proc frame,
   allocate_frame state proc frame = Some state1 ->
   frame_in_list frame state.(valid_frames) = true.
@@ -395,10 +395,10 @@ forall state state1 proc frame,
   frame_in_list frame state.(allocated_frames) = false.
 Proof.
   intros state state1 proc frame H.
-  apply valid_frames_only in H as He.
+  apply valid_frames_only_alloc in H as He.
   split.
   - exact He.
-  - apply unallocated_frames_only in H as Hee.
+  - apply unallocated_frames_only_alloc in H as Hee.
     exact Hee.
 Qed.
 
