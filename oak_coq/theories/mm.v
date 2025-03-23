@@ -1,4 +1,5 @@
 From stdpp Require Import base list propset gmap.
+From Coq Require Import Logic.Classical_Prop.
 
 (* Strictly only dealing with 2MB pages here *)
 
@@ -11,6 +12,14 @@ Definition v_addr := nat.
 | sc_mmap.
 
 Definition BitArray (size: nat) := list bool. I think this is the correct struct for this *)
+Definition PageTable := v_addr -> option p_addr.
+
+Record Process := {
+  p_pml4 : PageTable ; 
+  p_pid : nat ;
+  (* p_ksp : v_addr ; (* Kernel stack pointer *)
+  p_usp : v_addr ; User stack pointer  *)
+}.
 
 Record PhysFrame := {
   pf_addr : p_addr ;
@@ -18,29 +27,32 @@ Record PhysFrame := {
 
 Record VirtPage := {
   vp_addr : v_addr ;
+  vp_owner : option Process ;
 }.
 
-Definition PageTable := v_addr -> option p_addr.
-
 Lemma VirtPage_eq:
-forall v1 v2, v1 = v2 -> v1.(vp_addr) = v2.(vp_addr).
+forall v1 v2, v1 = v2 -> v1.(vp_addr) = v2.(vp_addr) /\ v1.(vp_owner) = v2.(vp_owner).
 Proof.
   intros v1 v2 H.
-  rewrite H.
-  reflexivity.
+  split.
+  - congruence.
+  - congruence.
 Qed.
 
 Lemma VirtPage_neq:
-forall v1 v2, v1 <> v2 -> v1.(vp_addr) <> v2.(vp_addr).
+forall v1 v2, v1 <> v2 -> v1.(vp_addr) <> v2.(vp_addr) \/ v1.(vp_owner) <> v2.(vp_owner).
 Proof.
-  intros v1 v2 H.
-  contradict H.
-  destruct v1, v2.
-  simpl in *.
-  rewrite H.
-  reflexivity.
-Qed.
+  intros v1 v2 Hneq.
+  apply not_and_or.
+  contradict Hneq.
+  destruct Hneq as [Haddr Howner].
 
+  destruct v1 as [addr1 owner1].
+  destruct v2 as [addr2 owner2].
+  simpl in *.
+  congruence.
+Qed.
+  
 Lemma PhysFrame_neq:
 forall f1 f2, f1 <> f2 -> f1.(pf_addr) <> f2.(pf_addr).
 Proof.
@@ -65,12 +77,7 @@ Record PhysFrameRange := {
   pfr_end : PhysFrame ;
 }.
 
-Record Process := {
-  p_pml4 : PageTable ; 
-  p_pid : nat ;
-  (* p_ksp : v_addr ; (* Kernel stack pointer *)
-  p_usp : v_addr ; User stack pointer  *)
-}.
+
 Lemma Process_eq:
 forall p1 p2, p1 = p2 -> p1.(p_pid) = p2.(p_pid).
 Proof.
@@ -476,6 +483,8 @@ Fixpoint allocate_frames (n: nat) (state: BitmapAllocator) (proc: Process) : opt
   end.
 
 Definition Mmap := BitmapAllocator -> Process -> v_addr -> nat -> v_addr.
+
+
 
 (* Page table walk *)
 
