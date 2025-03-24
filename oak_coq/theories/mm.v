@@ -106,13 +106,6 @@ Proof.
   congruence.
 Qed.
 
-Record BitmapAllocator := {
-  valid_frames : list PhysFrame;
-  allocated_frames : list PhysFrame;
-  frame_owners : list (PhysFrame * Process);
-  range : PhysFrameRange; 
-}.
-
 (* Frame equality check *)
 Definition frame_eq (f1 f2: PhysFrame) : bool :=
   Nat.eqb f1.(pf_addr) f2.(pf_addr).
@@ -212,6 +205,13 @@ Proof.
       rewrite H.
       apply IHrest.
 Qed.
+
+Record BitmapAllocator := {
+  valid_frames : list PhysFrame;
+  allocated_frames : list PhysFrame;
+  frame_owners : list (PhysFrame * Process);
+  range : PhysFrameRange; 
+}.
 
 (* Allocation operation *)
 Definition allocate_frame (state: BitmapAllocator) (proc: Process) (frame: PhysFrame) : option BitmapAllocator :=
@@ -455,6 +455,28 @@ Proof.
   - exact Hvalid.
   - exact Halloc.
 Qed.
+
+(* Bitmapallocator only allocates in the range *)
+Theorem bitmapallocator_only_allocates_in_range:
+forall state state1 proc frame,
+  allocate_frame state proc frame = Some state1 ->
+  frame.(pf_addr) >= state.(range).(pfr_start).(pf_addr) /\
+  frame.(pf_addr) <= state.(range).(pfr_end).(pf_addr).
+Proof.
+  intros.
+  unfold allocate_frame in H.
+  
+  destruct (andb (frame_in_list frame state.(valid_frames))
+                (negb (frame_in_list frame state.(allocated_frames)))) eqn:Hcond.
+  
+  - injection H as H_eq.
+    apply andb_prop in Hcond.
+    destruct Hcond as [Hvalid Halloc].
+    admit.
+    
+  - discriminate H.
+
+Print bitmapallocator_only_allocates_in_range.
 
 Fixpoint find_free_frame_in_list (valid_frames: list PhysFrame) (allocated_frames: list PhysFrame) : option PhysFrame :=
   match valid_frames with
