@@ -1,6 +1,8 @@
 From stdpp Require Import base list propset gmap.
 From Coq Require Import Logic.Classical_Prop.
 
+Import ListNotations.
+
 (* Strictly only dealing with 2MB pages here *)
 
 (* These should only be 2^64 *)
@@ -136,6 +138,18 @@ Proof.
   apply Nat.eqb_sym.
 Qed.
 
+Lemma frame_eq_iff:
+forall f1 f2, 
+  frame_eq f1 f2 = true -> f1 = f2.
+Proof.
+  intros.
+  unfold frame_eq in H.
+  apply Nat.eqb_eq in H.
+  destruct f1, f2.
+  simpl in *.
+  congruence.
+Qed.
+
 (* Check if a frame is in a list of frames *)
 Fixpoint frame_in_list (frame: PhysFrame) (frames: list PhysFrame) : bool :=
   match frames with
@@ -211,10 +225,14 @@ Record BitmapAllocator := {
   allocated_frames : list PhysFrame;
   frame_owners : list (PhysFrame * Process);
   range : PhysFrameRange; 
+  inv_valid_frames_in_range :
+  forall f, frame_in_list f valid_frames = true ->
+    f.(pf_addr) >= range.(pfr_start).(pf_addr) /\
+    f.(pf_addr) <= range.(pfr_end).(pf_addr);
 }.
 
 (* Allocation operation *)
-Definition allocate_frame (state: BitmapAllocator) (proc: Process) (frame: PhysFrame) : option BitmapAllocator :=
+Program Definition allocate_frame (state: BitmapAllocator) (proc: Process) (frame: PhysFrame) : option BitmapAllocator :=
   if andb (frame_in_list frame state.(valid_frames))
           (negb (frame_in_list frame state.(allocated_frames)))
   then 
@@ -222,10 +240,14 @@ Definition allocate_frame (state: BitmapAllocator) (proc: Process) (frame: PhysF
       valid_frames := state.(valid_frames);
       allocated_frames := frame :: state.(allocated_frames);
       frame_owners := set_frame_owner frame proc state.(frame_owners);
-      range := state.(range);
+      range := state.(range);  
     |}
   else None.
-
+Next Obligation.
+  intros.
+  apply state.(inv_valid_frames_in_range).
+  exact H.
+Qed.
 
 Lemma allocate_frame_correct: 
 forall state state1 proc frame,
@@ -330,7 +352,7 @@ Proof.
 Qed.
 
 (* Deallocating frame *)
-Definition deallocate_frame (state: BitmapAllocator) (frame: PhysFrame) : option BitmapAllocator :=
+Program Definition deallocate_frame (state: BitmapAllocator) (frame: PhysFrame) : option BitmapAllocator :=
   if andb (frame_in_list frame state.(valid_frames))
           (frame_in_list frame state.(allocated_frames))
   then 
@@ -341,6 +363,11 @@ Definition deallocate_frame (state: BitmapAllocator) (frame: PhysFrame) : option
       range := state.(range);
     |}
   else None.
+Next Obligation.
+  intros.
+  apply state.(inv_valid_frames_in_range).
+  exact H.
+Qed.
 
 Lemma dealloc_correct:
 forall state state1 frame,
@@ -472,11 +499,11 @@ Proof.
   - injection H as H_eq.
     apply andb_prop in Hcond.
     destruct Hcond as [Hvalid Halloc].
-    admit.
+    apply state.(inv_valid_frames_in_range).
+    exact Hvalid.
     
   - discriminate H.
-
-Print bitmapallocator_only_allocates_in_range.
+Qed.
 
 Fixpoint find_free_frame_in_list (valid_frames: list PhysFrame) (allocated_frames: list PhysFrame) : option PhysFrame :=
   match valid_frames with
