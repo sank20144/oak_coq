@@ -12,7 +12,9 @@ Definition p_addr := nat.    (* Physical address *)
 Definition v_addr := nat.    (* Virtual address *)
 
 (* Core data structures *)
-Definition PageTable := v_addr -> option p_addr.
+Record PageTable := {
+  pt_entries : list (v_addr * p_addr);  (* List of virtual to physical address mappings *)
+}.
 
 (* Process representation *)
 Record Process := {
@@ -36,6 +38,71 @@ Record PhysFrameRange := {
   pfr_start : PhysFrame;  (* First frame in range *)
   pfr_end : PhysFrame;    (* Last frame in range *)
 }.
+
+(* ==================================== *)
+(* ========= PAGE TABLE OPS =========== *)
+(* ==================================== *)
+
+(* Helper function for checking if an entry exists in a page table *)
+Fixpoint has_mapping_aux (entries: list (v_addr * p_addr)) (va: v_addr) : bool :=
+  match entries with
+  | [] => false
+  | (v, _) :: rest => 
+      if Nat.eqb v va 
+      then true
+      else has_mapping_aux rest va
+  end.
+
+(* Check if an entry exists in a page table *)
+Definition has_mapping (pt: PageTable) (va: v_addr) : bool :=
+  has_mapping_aux pt.(pt_entries) va.
+
+(* Helper function for looking up a physical address *)
+Fixpoint translate_addr_aux (entries: list (v_addr * p_addr)) (va: v_addr) : option p_addr :=
+  match entries with
+  | [] => None
+  | (v, p) :: rest => 
+      if Nat.eqb v va 
+      then Some p
+      else translate_addr_aux rest va
+  end.
+
+(* Look up a physical address for a given virtual address *)
+Definition translate_addr (pt: PageTable) (va: v_addr) : option p_addr :=
+  translate_addr_aux pt.(pt_entries) va.
+
+(* Add a mapping to a page table *)
+Definition add_mapping (pt: PageTable) (va: v_addr) (pa: p_addr) : PageTable :=
+  (* Remove existing mapping for this VA if it exists *)
+  let filtered := filter (fun mapping => negb (Nat.eqb (fst mapping) va)) pt.(pt_entries) in
+  {| pt_entries := (va, pa) :: filtered |}.
+
+(* Remove a mapping from a page table *)
+Definition remove_mapping (pt: PageTable) (va: v_addr) : PageTable :=
+  {| pt_entries := filter (fun mapping => negb (Nat.eqb (fst mapping) va)) pt.(pt_entries) |}.
+
+(* Create a new empty page table *)
+Definition empty_page_table : PageTable := {| pt_entries := [] |}.
+
+(* Page table properties and lemmas *)
+Lemma translate_addr_after_add:
+  forall pt va pa, 
+  translate_addr (add_mapping pt va pa) va = Some pa.
+Proof.
+  intros.
+  unfold translate_addr, add_mapping.
+  simpl.
+  rewrite Nat.eqb_refl.
+  reflexivity.
+Qed.
+
+Lemma empty_page_table_has_no_mappings:
+  forall va, translate_addr empty_page_table va = None.
+Proof.
+  intros. 
+  unfold empty_page_table. 
+  simpl. reflexivity.
+Qed.
 
 (* ==================================== *)
 (* ======== EQUALITY HANDLING ========= *)
@@ -519,169 +586,3 @@ Proof.
   - discriminate H.
 Qed.
 
-
-(* Page table walk *)
-
-(* Process related things *)
-
-(* This is the struct that will be used to keep track of the physical memory frames *)
-
-(* Used to keep track of the physical memory frames *)
-(* Record BitMapAllocator := {
-(* 4096 was what was used in the kernel for size which is tracking 512 gigs of memory ((4096 * 64)Frames * 2MB). So this should realistically be 262,144 (4096 * 64) since we use a bool list*) 
-  allocated : BitArray 4096; 
-  valid : BitArray 4096;
-  range : PhysFrameRange ; 
-}.
-
-Inductive PageTableFlag := 
-  | Present
-  | Writable 
-  | UserAccessible
-  | WriteThrough
-  | NoCache
-  | Accessed
-  | Dirty
-  | HugePage
-  | Global
-  | Encrypted
-  | NoExecute.
-
-(* These are syscall level flags that get translated to hardware level Page Table flags during the MMAP syscall *)
-Inductive MmapProtectionFlags :=
-  | PROT_READ
-  | PROT_WRITE
-  | PROT_EXEC
-  | PROT_NONE.
-
-Inductive MmapFlags :=
-  | MAP_PRIVATE
-  | MAP_FIXED
-  | MAP_ANONYMOUS.
-
-(* *************** *)
-
-
-(* Frame allocation related things *)
-
-(* Find first set bit in a list of booleans *)
-Fixpoint first_one (bits: list bool) : option nat :=
-  match bits with
-  | [] => None
-  | true :: _ => Some 0
-  | false :: rest => 
-      match first_one rest with
-      | None => None
-      | Some n => Some (S n)
-      end
-  end.
-
-Compute (first_one [false; false; false; false; false; true]).
-
-(* Bitwise AND of two boolean lists *)
-Fixpoint bitand (l1 l2: list bool) : list bool :=
-  match l1, l2 with
-  | [], _ => []
-  | _, [] => []
-  | x::xs, y::ys => (andb x y) :: (bitand xs ys)
-  end.
-
-Compute (bitand [true; false; true] [true; true; false]).
-
-(* Bitwise NOT of a boolean list *)
-Fixpoint bitnot (l: list bool) : list bool :=
-  match l with
-  | [] => []
-  | x::xs => (negb x) :: (bitnot xs)
-  end.
-
-Compute (bitnot [true; false; true]).
-
-(* Set bit at index *)
-Fixpoint set_bit (bits: list bool) (idx: nat) (val: bool) : list bool :=
-  match bits, idx with
-  | [], _ => []
-  | b::bs, 0 => val::bs
-  | b::bs, S n => b::(set_bit bs n val)
-  end.
-
-Compute (set_bit [true; false; true] 1 true).
-
-(* Frame allocation function *)
-Definition allocate_frame (bm: BitMapAllocator) : option (BitMapAllocator * p_addr) :=
-  match first_one (bitand (bm.(valid)) (bitnot bm.(allocated))) with
-  | None => None
-  | Some idx => 
-      let new_allocated := set_bit bm.(allocated) idx true in
-      let new_bm := {| 
-        allocated := new_allocated;
-        valid := bm.(valid);
-        range := bm.(range)
-      |} in
-      Some (new_bm, bm.(range).(pfr_start) + idx)
-  end.
-
-Compute (allocate_frame {| allocated := [false; false; true]; valid := [true; true; true]; range := {| pfr_start := 0; pfr_end := 0 |} |}).
-
-(* Page table related things *)
-
-Inductive PTLevel :=
-  | PML4_LEVEL  (* Level 4 *)
-  | PDP_LEVEL   (* Level 3 *)
-  | PD_LEVEL    (* Level 2 *)
-  | PT_LEVEL.   (* Level 1 *)
-
-(* Page table entry *)
-Record PTE := {
-  pte_paddr : p_addr ;
-  pte_flags : list PageTableFlag ; (* In reality, flags are embedded inside the p_addr itself*)
-}.
-
-(* Page table *)
-Record PageTable := {
-  pt_entries : list PTE ; (* Should be only 512 *)
-  level : PTLevel (* 4 = PML4, 3 = PDP, 2 = PD, 1 = PT *)
-}.
-
-(* Definition get_pt_index (addr: v_addr) (level: PTLevel) : nat :=
-  match level with
-  | PML4_LEVEL => addr.(pml4_idx)
-  | PDP_LEVEL => addr.(pdp_idx)
-  | PD_LEVEL => addr.(pd_idx)
-  | PT_LEVEL => addr.(pt_idx)
-  end. *)
-
-
-(* TODO: Page table walk *)
-
-(**********)
-
-
-
-(*************)
-
-(* Main syscall related things *)
-
-(* Base flags *)
-Definition base_pt_flags : list PageTableFlag := [Present; UserAccessible; Encrypted].
-
-(* Main protection flags to page table flags conversion *)
-Definition prot_to_ptflags (prot: list MmapProtectionFlags) : list PageTableFlag :=
-  match prot with
-  | [] => base_pt_flags ++ [NoExecute]
-  | [PROT_READ] => base_pt_flags ++ [NoExecute]
-  | [PROT_WRITE] => base_pt_flags ++ [Writable; NoExecute]
-  | [PROT_EXEC] => base_pt_flags
-  | [PROT_WRITE; PROT_EXEC] => base_pt_flags ++ [Writable]
-  | [PROT_EXEC; PROT_WRITE] => base_pt_flags ++ [Writable]
-  | _ => base_pt_flags ++ [NoExecute] 
-  end.
-
-(* Gets the needed address, size, protflags and memflags from user process 
--> Checks if the needed address is fixed -> Converts syscall flags to hardware flags
--> Finds and allocate pages in the users page tables and finds frames to back them up
--> Maps them -> flush tlb -> return pointer to virtual memory start *)
-
-Definition Mmap := nat. *)
- (* TODO *)
-  
