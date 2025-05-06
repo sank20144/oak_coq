@@ -104,6 +104,7 @@ Proof.
   simpl. reflexivity.
 Qed.
 
+
 (* ==================================== *)
 (* ======== EQUALITY HANDLING ========= *)
 (* ==================================== *)
@@ -334,6 +335,12 @@ Record BitmapAllocator := {
       f.(pf_addr) <= range.(pfr_end).(pf_addr);
 }.
 
+(* Total system state representation *)
+Record SystemState := {
+  processes: list Process;        (* All processes in the system *)
+  memory_state: BitmapAllocator; (* Current memory allocator state *)
+}.
+
 (* Allocation operation *)
 Program Definition allocate_frame (state: BitmapAllocator) (proc: Process) (frame: PhysFrame) 
                                  : option BitmapAllocator :=
@@ -405,11 +412,95 @@ Fixpoint allocate_frames (n: nat) (state: BitmapAllocator) (proc: Process)
 (* =========== Mmap Model =========== *)
 (* ==================================== *)
 
-(* Mmap function prototype *)
-Definition Mmap := BitmapAllocator -> Process -> v_addr -> nat -> v_addr.
+(* Check if a virtual address is free (not mapped) in a page table *)
+Definition is_vaddr_free (pt: PageTable) (va: v_addr) : bool :=
+  match translate_addr pt va with
+  | None => true   (* Address is free *)
+  | Some _ => false  (* Address is already mapped *)
+  end.
+
+(* Check if a range of virtual addresses is free in a page table *)
+Fixpoint validate_vaddr_range (pt: PageTable) (start_va: v_addr) (size: nat) : bool :=
+  match size with
+  | 0 => true
+  | S n' => 
+      if is_vaddr_free pt start_va 
+      then validate_vaddr_range pt (start_va + 1) n'
+      else false  (* Found an address that's already mapped *)
+  end.
+
+Compute (validate_vaddr_range empty_page_table 0 5). (* Expected output: true *)
+Compute (validate_vaddr_range {| pt_entries := [(0, 1); (1, 2)] |} 0 5). (* Expected output: false *)
 
 
-(* ==================================== *)
+(* Map a list of physical frames to virtual addresses in a process page table *)
+Fixpoint map_frames_to_vaddr (pt: PageTable) (start_va: v_addr) 
+                            (frames: list PhysFrame) : PageTable :=
+  match frames with
+  | [] => pt
+  | frame :: rest =>
+      let new_pt := add_mapping pt start_va frame.(pf_addr) in
+      map_frames_to_vaddr new_pt (start_va + 1) rest
+  end.
+
+(* Helper function to update a process in the process list *)
+Fixpoint update_process (procs: list Process) (proc: Process) : list Process :=
+  match procs with
+  | [] => [proc]
+  | p :: rest =>
+      if Nat.eqb p.(p_pid) proc.(p_pid)
+      then proc :: rest
+      else p :: update_process rest proc
+  end.
+
+Definition mmap (sys: SystemState) (proc: Process) (hint_addr: v_addr) 
+                (size: nat)  
+                : option SystemState :=
+  (* First check if the virtual address range is free *)
+  if validate_vaddr_range proc.(p_pml4) hint_addr size then
+    (* Proceed with allocation only if the range is free *)
+    match allocate_frames size sys.(memory_state) proc with
+    | None => None  (* Failed to allocate enough frames *)
+    | Some new_mem_state =>
+        (* Determine the starting virtual address *)
+        let start_va := hint_addr in
+        
+        (* Get all allocated frames to map them *)
+        let allocated := firstn size new_mem_state.(allocated_frames) in
+        
+        (* Map the frames to virtual addresses in the process page table *)
+        let new_pml4 := map_frames_to_vaddr proc.(p_pml4) start_va allocated in
+        
+        (* Create updated process with the new page table *)
+        let new_proc := {| p_pml4 := new_pml4; p_pid := proc.(p_pid) |} in
+        
+        Some {|
+          processes := update_process sys.(processes) new_proc;
+          memory_state := new_mem_state;
+        |}
+    end
+  else
+    None.
+
+Compute (mmap {| 
+  processes := []; 
+  memory_state := {| 
+    valid_frames := [
+      {| pf_addr := 0 |};
+      {| pf_addr := 1 |};
+      {| pf_addr := 2 |};
+      {| pf_addr := 3 |};
+      {| pf_addr := 4 |}
+    ]; 
+    allocated_frames := []; 
+    frame_owners := []; 
+    range := {| 
+      pfr_start := {| pf_addr := 0 |}; 
+      pfr_end := {| pf_addr := 100 |} 
+    |} 
+  |} |} 
+  {| p_pml4 := empty_page_table; p_pid := 1 |} 0 5).   
+
 (* =========== THEOREMS ============== *)
 (* ==================================== *)
 
