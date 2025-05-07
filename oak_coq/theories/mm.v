@@ -3,10 +3,6 @@ From Coq Require Import Logic.Classical_Prop.
 
 Import ListNotations.
 
-(* ==================================== *)
-(* ========= TYPE DEFINITIONS ========= *)
-(* ==================================== *)
-
 (* Address and memory types *)
 Definition p_addr := nat.    (* Physical address *)
 Definition v_addr := nat.    (* Virtual address *)
@@ -38,10 +34,6 @@ Record PhysFrameRange := {
   pfr_start : PhysFrame;  (* First frame in range *)
   pfr_end : PhysFrame;    (* Last frame in range *)
 }.
-
-(* ==================================== *)
-(* ========= PAGE TABLE OPS =========== *)
-(* ==================================== *)
 
 (* Helper function for checking if an entry exists in a page table *)
 Fixpoint has_mapping_aux (entries: list (v_addr * p_addr)) (va: v_addr) : bool :=
@@ -103,11 +95,6 @@ Proof.
   unfold empty_page_table. 
   simpl. reflexivity.
 Qed.
-
-
-(* ==================================== *)
-(* ======== EQUALITY HANDLING ========= *)
-(* ==================================== *)
 
 (* Support lemmas for records *)
 Lemma PhysFrame_eq:
@@ -198,10 +185,6 @@ Proof.
 Qed.
 
 
-(* ==================================== *)
-(* ======== FRAME OPERATIONS ========== *)
-(* ==================================== *)
-
 (* Check if a frame is in a list of frames *)
 Fixpoint frame_in_list (frame: PhysFrame) (frames: list PhysFrame) : bool :=
   match frames with
@@ -247,10 +230,6 @@ Proof.
   simpl. rewrite frame_eq_refl.
   apply removed_frame_not_in_list.
 Qed.
-
-(* ==================================== *)
-(* ======= OWNERSHIP MANAGEMENT ======= *)
-(* ==================================== *)
 
 (* Find owner of a frame *)
 Fixpoint get_frame_owner (frame: PhysFrame) (owners: list (PhysFrame * Process)) : option Process :=
@@ -316,10 +295,6 @@ Proof.
     + apply IHrest.
     + simpl. rewrite H. apply IHrest.
 Qed.
-
-(* ==================================== *)
-(* =========== ALLOCATOR ============== *)
-(* ==================================== *)
 
 (* Main allocator structure *)
 Record BitmapAllocator := {
@@ -407,10 +382,6 @@ Fixpoint allocate_frames (n: nat) (state: BitmapAllocator) (proc: Process)
           end
       end
   end.
-
-(* ==================================== *)
-(* =========== Mmap Model =========== *)
-(* ==================================== *)
 
 (* Check if a virtual address is free (not mapped) in a page table *)
 Definition is_vaddr_free (pt: PageTable) (va: v_addr) : bool :=
@@ -503,6 +474,27 @@ Compute (mmap {|
 
 (* =========== THEOREMS ============== *)
 (* ==================================== *)
+Lemma update_process_correct:
+  forall procs proc,
+  In proc (update_process procs proc).
+Proof.
+  intros procs proc.
+  induction procs as [|p rest IH].
+  - simpl. left. reflexivity.
+  - simpl.
+    destruct (Nat.eqb (p_pid p) (p_pid proc)) eqn:Heq.
+    + left. reflexivity.
+    + right. apply IH.
+Qed.
+
+Lemma mmap_correct:
+  forall sys proc hint_addr size new_sys,
+    mmap sys proc hint_addr size = Some new_sys ->
+    exists new_proc, In new_proc new_sys.(processes) /\
+      new_proc.(p_pid) = proc.(p_pid) /\
+      validate_vaddr_range new_proc.(p_pml4) hint_addr size = false.
+Proof.
+Admitted.
 
 Lemma allocate_frame_correct: 
   forall state state1 proc frame,
