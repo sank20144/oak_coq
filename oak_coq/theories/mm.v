@@ -99,18 +99,6 @@ Fixpoint remove_frame (frame: PhysFrame) (frames: list PhysFrame) : list PhysFra
       else curr :: remove_frame frame rest 
   end.
 
-Lemma removed_frame_not_in_list:
-  forall fs frame, frame_in_list frame (remove_frame frame fs) = false.
-Proof.
-  intros fs frame.
-  induction fs as [|curr_frame rest IHrest].
-  - simpl. reflexivity.
-  - simpl.
-    destruct (frame_eq frame curr_frame) eqn:Heq.
-    + apply IHrest.
-    + simpl. rewrite Heq. apply IHrest.
-Qed.
-
 (* Find owner of a frame *)
 Fixpoint get_frame_owner (frame: PhysFrame) (owners: list (PhysFrame * Process)) : option Process :=
   match owners with
@@ -143,19 +131,6 @@ Fixpoint remove_frame_owner (frame: PhysFrame) (owners: list (PhysFrame * Proces
       then remove_frame_owner frame rest  
       else (curr_frame, curr_proc) :: remove_frame_owner frame rest  
   end.
-
-Lemma remove_frame_owner_correct:
-forall frame owners,
-  get_frame_owner frame (remove_frame_owner frame owners) = None.
-Proof.
-  intros frame owners.
-  induction owners as [|[curr_frame curr_proc] rest IHrest].
-  - simpl. reflexivity.
-  - simpl.
-    destruct (frame_eq frame curr_frame) eqn:H.
-    + apply IHrest.
-    + simpl. rewrite H. apply IHrest.
-Qed.
 
 (* Main allocator structure *)
 Record BitmapAllocator := {
@@ -441,6 +416,18 @@ Section SupportLemmas.
     rewrite frame_eq_refl. reflexivity.
   Qed.
 
+  Lemma removed_frame_not_in_list:
+  forall fs frame, frame_in_list frame (remove_frame frame fs) = false.
+  Proof.
+    intros fs frame.
+    induction fs as [|curr_frame rest IHrest].
+    - simpl. reflexivity.
+    - simpl.
+      destruct (frame_eq frame curr_frame) eqn:Heq.
+      + apply IHrest.
+      + simpl. rewrite Heq. apply IHrest.
+  Qed.
+
   Lemma remove_frame_correct: 
     forall frame frames, frame_in_list frame (remove_frame frame (frame :: frames)) = false.
   Proof.
@@ -467,6 +454,19 @@ Section SupportLemmas.
       + simpl. rewrite frame_eq_refl. reflexivity.
       + simpl. rewrite H. apply IHrest.
   Qed.
+
+  Lemma remove_frame_owner_correct:
+    forall frame owners,
+      get_frame_owner frame (remove_frame_owner frame owners) = None.
+  Proof.
+    intros frame owners.
+    induction owners as [|[curr_frame curr_proc] rest IHrest].
+    - simpl. reflexivity.
+    - simpl.
+      destruct (frame_eq frame curr_frame) eqn:H.
+      + apply IHrest.
+      + simpl. rewrite H. apply IHrest.
+Qed.
 
 End SupportLemmas.
 
@@ -540,7 +540,7 @@ Section PageTableProofs.
 End PageTableProofs.
 
 Section BitmapAllocatorProofs.
-
+  
   Lemma allocate_frame_correct: 
     forall state state1 proc frame,
       allocate_frame state proc frame = Some state1 ->
