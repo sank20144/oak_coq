@@ -76,114 +76,9 @@ Definition remove_mapping (pt: PageTable) (va: v_addr) : PageTable :=
 (* Create a new empty page table *)
 Definition empty_page_table : PageTable := {| pt_entries := [] |}.
 
-(* Page table properties and lemmas *)
-Lemma translate_addr_after_add:
-  forall pt va pa, 
-  translate_addr (add_mapping pt va pa) va = Some pa.
-Proof.
-  intros.
-  unfold translate_addr, add_mapping.
-  simpl.
-  rewrite Nat.eqb_refl.
-  reflexivity.
-Qed.
-
-Lemma empty_page_table_has_no_mappings:
-  forall va, translate_addr empty_page_table va = None.
-Proof.
-  intros. 
-  unfold empty_page_table. 
-  simpl. reflexivity.
-Qed.
-
-(* Support lemmas for records *)
-Lemma PhysFrame_eq:
-  forall f1 f2, f1 = f2 -> f1.(pf_addr) = f2.(pf_addr).
-Proof.
-  intros f1 f2 H. rewrite H. reflexivity.
-Qed.
-
-Lemma PhysFrame_neq:
-  forall f1 f2, f1 <> f2 -> f1.(pf_addr) <> f2.(pf_addr).
-Proof.
-  intros f1 f2 H.
-  contradict H. destruct f1, f2.
-  simpl in *. rewrite H. reflexivity.
-Qed.
-
-Lemma VirtPage_eq:
-  forall v1 v2, v1 = v2 -> v1.(vp_addr) = v2.(vp_addr) /\ v1.(vp_owner) = v2.(vp_owner).
-Proof.
-  intros v1 v2 H. split; congruence.
-Qed.
-
-Lemma VirtPage_neq:
-  forall v1 v2, v1 <> v2 -> v1.(vp_addr) <> v2.(vp_addr) \/ v1.(vp_owner) <> v2.(vp_owner).
-Proof.
-  intros v1 v2 Hneq.
-  apply not_and_or. contradict Hneq.
-  destruct Hneq as [Haddr Howner].
-  destruct v1 as [addr1 owner1].
-  destruct v2 as [addr2 owner2].
-  simpl in *. congruence.
-Qed.
-
-Lemma Process_eq:
-  forall p1 p2, p1 = p2 -> p1.(p_pid) = p2.(p_pid).
-Proof.
-  intros p1 p2 H. congruence.
-Qed.
-
-Lemma process_components_determine_equality:
-  forall p1 p2, 
-  p1.(p_pid) = p2.(p_pid) /\ p1.(p_pml4) = p2.(p_pml4) -> p1 = p2.
-Proof.
-  intros p1 p2 [Hpid Hpml4].
-  destruct p1 as [pml4_1 pid_1].
-  destruct p2 as [pml4_2 pid_2].
-  simpl in *. congruence.
-Qed.
-
-Lemma Process_neq_converse:
-  forall p1 p2, p1.(p_pid) <> p2.(p_pid) -> p1 <> p2.
-Proof.
-  intros p1 p2 Hpid.
-  unfold not. intros Heq.
-  apply Hpid. congruence.
-Qed.
-
 (* Frame equality check - two frames are equal if they have the same address *)
 Definition frame_eq (f1 f2: PhysFrame) : bool :=
   Nat.eqb f1.(pf_addr) f2.(pf_addr).
-
-Lemma frame_eq_refl: 
-  forall f, frame_eq f f = true.
-Proof.
-  intro f. unfold frame_eq. apply Nat.eqb_refl.
-Qed.
-
-Lemma frame_eq_sym: 
-  forall f1 f2, frame_eq f1 f2 = frame_eq f2 f1.
-Proof.
-  intros f1 f2. unfold frame_eq. apply Nat.eqb_sym.
-Qed.
-
-Lemma frame_eq_neq:
-  forall f1 f2, f1 <> f2 -> frame_eq f1 f2 = false.
-Proof.
-  intros f1 f2 H.
-  unfold frame_eq. apply Nat.eqb_neq.
-  apply PhysFrame_neq. apply H.
-Qed.
-
-Lemma frame_eq_iff:
-  forall f1 f2, frame_eq f1 f2 = true -> f1 = f2.
-Proof.
-  intros. unfold frame_eq in H.
-  apply Nat.eqb_eq in H.
-  destruct f1, f2. simpl in *. congruence.
-Qed.
-
 
 (* Check if a frame is in a list of frames *)
 Fixpoint frame_in_list (frame: PhysFrame) (frames: list PhysFrame) : bool :=
@@ -193,13 +88,6 @@ Fixpoint frame_in_list (frame: PhysFrame) (frames: list PhysFrame) : bool :=
       if frame_eq frame curr then true
       else frame_in_list frame rest
   end.
-
-Lemma frame_in_list_correct: 
-  forall frame frames, frame_in_list frame (frame :: frames) = true.
-Proof.
-  intros frame frames. simpl.
-  rewrite frame_eq_refl. reflexivity.
-Qed.
 
 (* Remove a frame from a list *)
 Fixpoint remove_frame (frame: PhysFrame) (frames: list PhysFrame) : list PhysFrame :=
@@ -223,14 +111,6 @@ Proof.
     + simpl. rewrite Heq. apply IHrest.
 Qed.
 
-Lemma remove_frame_correct: 
-  forall frame frames, frame_in_list frame (remove_frame frame (frame :: frames)) = false.
-Proof.
-  intros frame frames.
-  simpl. rewrite frame_eq_refl.
-  apply removed_frame_not_in_list.
-Qed.
-
 (* Find owner of a frame *)
 Fixpoint get_frame_owner (frame: PhysFrame) (owners: list (PhysFrame * Process)) : option Process :=
   match owners with
@@ -240,13 +120,6 @@ Fixpoint get_frame_owner (frame: PhysFrame) (owners: list (PhysFrame * Process))
       then Some curr_proc
       else get_frame_owner frame rest
   end.
-
-Lemma get_frame_owner_correct: 
-  forall frame proc owners, get_frame_owner frame ((frame, proc) :: owners) = Some proc.
-Proof.
-  intros frame proc owners.
-  simpl. rewrite frame_eq_refl. reflexivity.
-Qed.
 
 (* Set frame owner *)
 Fixpoint set_frame_owner (frame: PhysFrame) (proc: Process) 
@@ -259,18 +132,6 @@ Fixpoint set_frame_owner (frame: PhysFrame) (proc: Process)
       then (frame, proc) :: rest
       else (curr_frame, curr_proc) :: set_frame_owner frame proc rest
   end.
-
-Lemma set_frame_owner_correct: 
-  forall frame proc owners, get_frame_owner frame (set_frame_owner frame proc owners) = Some proc.
-Proof.
-  intros frame proc owners.
-  induction owners as [|[curr_frame curr_proc] rest IHrest].
-  - simpl. rewrite frame_eq_refl. reflexivity.
-  - simpl.
-    destruct (frame_eq frame curr_frame) eqn:H.
-    + simpl. rewrite frame_eq_refl. reflexivity.
-    + simpl. rewrite H. apply IHrest.
-Qed.
 
 (* Remove ownership of a frame *)
 Fixpoint remove_frame_owner (frame: PhysFrame) (owners: list (PhysFrame * Process)) 
@@ -474,198 +335,383 @@ Compute (mmap {|
 
 (* =========== THEOREMS ============== *)
 (* ==================================== *)
-Lemma update_process_correct:
-  forall procs proc,
-  In proc (update_process procs proc).
-Proof.
-  intros procs proc.
-  induction procs as [|p rest IH].
-  - simpl. left. reflexivity.
-  - simpl.
-    destruct (Nat.eqb (p_pid p) (p_pid proc)) eqn:Heq.
-    + left. reflexivity.
-    + right. apply IH.
-Qed.
 
-Lemma mmap_correct:
-  forall sys proc hint_addr size new_sys,
-    mmap sys proc hint_addr size = Some new_sys ->
-    exists new_proc, In new_proc new_sys.(processes) /\
-      new_proc.(p_pid) = proc.(p_pid) /\
-      validate_vaddr_range new_proc.(p_pml4) hint_addr size = false.
-Proof.
-Admitted.
+Section SupportLemmas.
+  (* Support lemmas for the page table operations *)
+  Lemma has_mapping_empty:
+    forall va, has_mapping empty_page_table va = false.
+  Proof.
+    intros. unfold empty_page_table, has_mapping. simpl. reflexivity.
+  Qed.
 
-Lemma allocate_frame_correct: 
-  forall state state1 proc frame,
-    allocate_frame state proc frame = Some state1 ->
-    frame_in_list frame state1.(allocated_frames) = true.
-Proof.
-  intros state state1 proc frame H.
-  unfold allocate_frame in H.
-  destruct (andb (frame_in_list frame state.(valid_frames))
-                 (negb (frame_in_list frame state.(allocated_frames)))) eqn:Hcond.
-  
-  - injection H as H_eq.
-    subst state1.
-    simpl.
-    rewrite frame_eq_refl.
-    reflexivity.
-    
-  - discriminate H.
-Qed.
+  Lemma translate_addr_empty:
+    forall va, translate_addr empty_page_table va = None.
+  Proof.
+    intros. unfold empty_page_table, translate_addr. simpl. reflexivity.
+  Qed.
 
-(* No double allocation theorem *)
-Theorem no_double_allocation: 
-  forall state state1 p1 p2 frame,
-    p1.(p_pid) <> p2.(p_pid) ->
-    allocate_frame state p1 frame = Some state1 ->
-    allocate_frame state1 p2 frame = None.
-Proof.
-  intros state state1 p1 p2 frame H Halloc.
-  unfold allocate_frame in Halloc.
-  destruct (andb (frame_in_list frame state.(valid_frames))
-                 (negb (frame_in_list frame state.(allocated_frames)))) eqn:Hcond.
-  - injection Halloc as H_eq.
-    subst state1.
+  (* Support lemmas for records *)
+  Lemma PhysFrame_eq:
+  forall f1 f2, f1 = f2 -> f1.(pf_addr) = f2.(pf_addr).
+  Proof.
+    intros f1 f2 H. rewrite H. reflexivity.
+  Qed.
 
-    unfold allocate_frame.
-    simpl.
+  Lemma PhysFrame_neq:
+    forall f1 f2, f1 <> f2 -> f1.(pf_addr) <> f2.(pf_addr).
+  Proof.
+    intros f1 f2 H.
+    contradict H. destruct f1, f2.
+    simpl in *. rewrite H. reflexivity.
+  Qed.
 
-    rewrite frame_eq_refl.
-    simpl.
-    rewrite andb_false_r.
-    reflexivity.
-  - discriminate Halloc.
-Qed.
+  Lemma VirtPage_eq:
+    forall v1 v2, v1 = v2 -> v1.(vp_addr) = v2.(vp_addr) /\ v1.(vp_owner) = v2.(vp_owner).
+  Proof.
+    intros v1 v2 H. split; congruence.
+  Qed.
 
-Lemma dealloc_correct:
-  forall state state1 frame,
-    deallocate_frame state frame = Some state1 ->
-    frame_in_list frame state1.(allocated_frames) = false.
-Proof.
-  intros state state1 frame H.
-  unfold deallocate_frame in H.
-  destruct (andb (frame_in_list frame state.(valid_frames))
-                 (frame_in_list frame state.(allocated_frames))) eqn:Hcond.
-  - injection H as H_eq.
-    subst state1.
-    simpl.
+  Lemma VirtPage_neq:
+    forall v1 v2, v1 <> v2 -> v1.(vp_addr) <> v2.(vp_addr) \/ v1.(vp_owner) <> v2.(vp_owner).
+  Proof.
+    intros v1 v2 Hneq.
+    apply not_and_or. contradict Hneq.
+    destruct Hneq as [Haddr Howner].
+    destruct v1 as [addr1 owner1].
+    destruct v2 as [addr2 owner2].
+    simpl in *. congruence.
+  Qed.
+
+  Lemma Process_eq:
+    forall p1 p2, p1 = p2 -> p1.(p_pid) = p2.(p_pid).
+  Proof.
+    intros p1 p2 H. congruence.
+  Qed.
+
+  Lemma process_components_determine_equality:
+    forall p1 p2, 
+    p1.(p_pid) = p2.(p_pid) /\ p1.(p_pml4) = p2.(p_pml4) -> p1 = p2.
+  Proof.
+    intros p1 p2 [Hpid Hpml4].
+    destruct p1 as [pml4_1 pid_1].
+    destruct p2 as [pml4_2 pid_2].
+    simpl in *. congruence.
+  Qed.
+
+  Lemma Process_neq_converse:
+    forall p1 p2, p1.(p_pid) <> p2.(p_pid) -> p1 <> p2.
+  Proof.
+    intros p1 p2 Hpid.
+    unfold not. intros Heq.
+    apply Hpid. congruence.
+  Qed.
+
+  Lemma frame_eq_refl: 
+    forall f, frame_eq f f = true.
+  Proof.
+    intro f. unfold frame_eq. apply Nat.eqb_refl.
+  Qed.
+
+  Lemma frame_eq_sym: 
+    forall f1 f2, frame_eq f1 f2 = frame_eq f2 f1.
+  Proof.
+    intros f1 f2. unfold frame_eq. apply Nat.eqb_sym.
+  Qed.
+
+  Lemma frame_eq_neq:
+    forall f1 f2, f1 <> f2 -> frame_eq f1 f2 = false.
+  Proof.
+    intros f1 f2 H.
+    unfold frame_eq. apply Nat.eqb_neq.
+    apply PhysFrame_neq. apply H.
+  Qed.
+
+  Lemma frame_eq_iff:
+    forall f1 f2, frame_eq f1 f2 = true -> f1 = f2.
+  Proof.
+    intros. unfold frame_eq in H.
+    apply Nat.eqb_eq in H.
+    destruct f1, f2. simpl in *. congruence.
+  Qed.
+
+  Lemma frame_in_list_correct: 
+    forall frame frames, frame_in_list frame (frame :: frames) = true.
+  Proof.
+    intros frame frames. simpl.
+    rewrite frame_eq_refl. reflexivity.
+  Qed.
+
+  Lemma remove_frame_correct: 
+    forall frame frames, frame_in_list frame (remove_frame frame (frame :: frames)) = false.
+  Proof.
+    intros frame frames.
+    simpl. rewrite frame_eq_refl.
     apply removed_frame_not_in_list.
-  - discriminate H.
-Qed.
+  Qed.
 
-(* Allocation constraints *)
-Theorem unallocated_frames_only_alloc:
-  forall state state1 proc frame,
-    allocate_frame state proc frame = Some state1 ->
-    frame_in_list frame state.(allocated_frames) = false.
-Proof.
-  intros state state1 proc frame H.
-  unfold allocate_frame in H.
-  destruct (andb (frame_in_list frame state.(valid_frames))
-                 (negb (frame_in_list frame state.(allocated_frames)))) eqn:Hcond.
-  - injection H as H_eq.
-    apply andb_prop in Hcond.
-    destruct Hcond as [_ Hnot_allocated].
-    apply negb_true_iff in Hnot_allocated.
-    exact Hnot_allocated.
-  - discriminate H.
-Qed.
+  Lemma get_frame_owner_correct: 
+    forall frame proc owners, get_frame_owner frame ((frame, proc) :: owners) = Some proc.
+  Proof.
+    intros frame proc owners.
+    simpl. rewrite frame_eq_refl. reflexivity.
+  Qed.
 
-Theorem valid_frames_only_alloc: 
-  forall state state1 proc frame,
-    allocate_frame state proc frame = Some state1 ->
-    frame_in_list frame state.(valid_frames) = true.
-Proof.
-  intros state state1 proc frame H.
-  unfold allocate_frame in H.
-  destruct (andb (frame_in_list frame state.(valid_frames))
-                 (negb (frame_in_list frame state.(allocated_frames)))) eqn:Hcond.
-  - injection H as H_eq.
-    apply andb_prop in Hcond.
-    destruct Hcond as [Hvalid _].
-    exact Hvalid.
-  - discriminate H.
-Qed.
+  Lemma set_frame_owner_correct: 
+    forall frame proc owners, get_frame_owner frame (set_frame_owner frame proc owners) = Some proc.
+  Proof.
+    intros frame proc owners.
+    induction owners as [|[curr_frame curr_proc] rest IHrest].
+    - simpl. rewrite frame_eq_refl. reflexivity.
+    - simpl.
+      destruct (frame_eq frame curr_frame) eqn:H.
+      + simpl. rewrite frame_eq_refl. reflexivity.
+      + simpl. rewrite H. apply IHrest.
+  Qed.
 
-(* Combined allocation theorem *)
-Theorem valid_unallocated_frames_only_alloc:
-  forall state state1 proc frame,
-    allocate_frame state proc frame = Some state1 ->
-    frame_in_list frame state.(valid_frames) = true /\
-    frame_in_list frame state.(allocated_frames) = false.
-Proof.
-  intros state state1 proc frame H.
-  split.
-  - apply valid_frames_only_alloc in H. exact H.
-  - apply unallocated_frames_only_alloc in H. exact H.
-Qed.
+End SupportLemmas.
 
-(* Deallocation constraints *)
-Theorem allocated_frames_only_dealloc: 
-  forall state state1 frame,
-    deallocate_frame state frame = Some state1 ->
-    frame_in_list frame state.(allocated_frames) = true.
-Proof.
-  intros state state1 frame H.
-  unfold deallocate_frame in H.
-  destruct (andb (frame_in_list frame state.(valid_frames))
-                 (frame_in_list frame state.(allocated_frames))) eqn:Hcond.
-  - injection H as H_eq.
-    apply andb_prop in Hcond.
-    destruct Hcond as [_ Hallocated].
-    exact Hallocated.
-  - discriminate H.
-Qed.
 
-Theorem valid_frames_only_dealloc:
-  forall state state1 frame,
-    deallocate_frame state frame = Some state1 ->
-    frame_in_list frame state.(valid_frames) = true.
-Proof.
-  intros state state1 frame H.
-  unfold deallocate_frame in H.
-  destruct (andb (frame_in_list frame state.(valid_frames))
-                 (frame_in_list frame state.(allocated_frames))) eqn:Hcond.
-  - injection H as H_eq.
-    apply andb_prop in Hcond.
-    destruct Hcond as [Hvalid _].
-    exact Hvalid.
-  - discriminate H.
-Qed.
+Section PageTableProofs.
+  (* Properties about the page table operations *)
+  Lemma add_mapping_correct:
+    forall pt va pa,
+      has_mapping (add_mapping pt va pa) va = true.
+  Proof.
+    intros pt va pa.
+    unfold add_mapping, has_mapping.
+    simpl. rewrite Nat.eqb_refl. reflexivity.
+  Qed.
 
-(* Combined deallocation theorem *)
-Theorem valid_allocated_frames_only_dealloc: 
-  forall state state1 frame,
-    deallocate_frame state frame = Some state1 ->
-    frame_in_list frame state.(valid_frames) = true /\
-    frame_in_list frame state.(allocated_frames) = true.
-Proof.
-  intros state state1 frame H.
-  split.
-  - apply valid_frames_only_dealloc in H. exact H.
-  - apply allocated_frames_only_dealloc in H. exact H.
-Qed.
+  Lemma translate_addr_after_add:
+  forall pt va pa, 
+    translate_addr (add_mapping pt va pa) va = Some pa.
+  Proof.
+    intros.
+    unfold translate_addr, add_mapping.
+    simpl.
+    rewrite Nat.eqb_refl.
+    reflexivity.
+  Qed.
 
-(* Range checking *)
-Theorem bitmapallocator_only_allocates_in_range:
-  forall state state1 proc frame,
-    allocate_frame state proc frame = Some state1 ->
-    frame.(pf_addr) >= state.(range).(pfr_start).(pf_addr) /\
-    frame.(pf_addr) <= state.(range).(pfr_end).(pf_addr).
-Proof.
-  intros state state1 proc frame H.
-  unfold allocate_frame in H.
-  destruct (andb (frame_in_list frame state.(valid_frames))
-                 (negb (frame_in_list frame state.(allocated_frames)))) eqn:Hcond.
-  
-  - injection H as H_eq.
-    apply andb_prop in Hcond.
-    destruct Hcond as [Hvalid _].
-    apply state.(inv_valid_frames_in_range).
-    exact Hvalid.
+  Lemma empty_page_table_has_no_mappings:
+    forall va, 
+      translate_addr empty_page_table va = None.
+  Proof.
+    intros. 
+    unfold empty_page_table. 
+    simpl. reflexivity.
+  Qed.
+
+  Lemma translate_addr_correct:
+    forall pt va pa,
+      has_mapping pt va = true ->
+      translate_addr pt va = Some pa ->
+      exists pa', In (va, pa') pt.(pt_entries) /\ pa = pa'.
+  Proof.
+    intros pt va pa Hmap Htrans.
+    unfold has_mapping in Hmap.
+    unfold translate_addr in Htrans.
+    induction pt.(pt_entries) as [|[v p] rest IH].
+    - simpl in Hmap. discriminate.
+    Admitted.
     
-  - discriminate H.
-Qed.
+  Lemma update_process_correct:
+    forall procs proc,
+    In proc (update_process procs proc).
+  Proof.
+    intros procs proc.
+    induction procs as [|p rest IH].
+    - simpl. left. reflexivity.
+    - simpl.
+      destruct (Nat.eqb (p_pid p) (p_pid proc)) eqn:Heq.
+      + left. reflexivity.
+      + right. apply IH.
+  Qed.
 
+  Lemma mmap_correct:
+    forall sys proc hint_addr size new_sys,
+      mmap sys proc hint_addr size = Some new_sys ->
+      exists new_proc, In new_proc new_sys.(processes) /\
+        new_proc.(p_pid) = proc.(p_pid) /\
+        validate_vaddr_range new_proc.(p_pml4) hint_addr size = false.
+  Proof.
+  Admitted.
+
+End PageTableProofs.
+
+Section BitmapAllocatorProofs.
+
+  Lemma allocate_frame_correct: 
+    forall state state1 proc frame,
+      allocate_frame state proc frame = Some state1 ->
+      frame_in_list frame state1.(allocated_frames) = true.
+  Proof.
+    intros state state1 proc frame H.
+    unfold allocate_frame in H.
+    destruct (andb (frame_in_list frame state.(valid_frames))
+                  (negb (frame_in_list frame state.(allocated_frames)))) eqn:Hcond.
+    
+    - injection H as H_eq.
+      subst state1.
+      simpl.
+      rewrite frame_eq_refl.
+      reflexivity.
+      
+    - discriminate H.
+  Qed.
+
+  Lemma dealloc_correct:
+    forall state state1 frame,
+      deallocate_frame state frame = Some state1 ->
+      frame_in_list frame state1.(allocated_frames) = false.
+  Proof.
+    intros state state1 frame H.
+    unfold deallocate_frame in H.
+    destruct (andb (frame_in_list frame state.(valid_frames))
+                  (frame_in_list frame state.(allocated_frames))) eqn:Hcond.
+    - injection H as H_eq.
+      subst state1.
+      simpl.
+      apply removed_frame_not_in_list.
+    - discriminate H.
+  Qed.
+
+  (* No double allocation theorem *)
+  Theorem no_double_allocation: 
+    forall state state1 p1 p2 frame,
+      p1.(p_pid) <> p2.(p_pid) ->
+      allocate_frame state p1 frame = Some state1 ->
+      allocate_frame state1 p2 frame = None.
+  Proof.
+    intros state state1 p1 p2 frame H Halloc.
+    unfold allocate_frame in Halloc.
+    destruct (andb (frame_in_list frame state.(valid_frames))
+                  (negb (frame_in_list frame state.(allocated_frames)))) eqn:Hcond.
+    - injection Halloc as H_eq.
+      subst state1.
+
+      unfold allocate_frame.
+      simpl.
+
+      rewrite frame_eq_refl.
+      simpl.
+      rewrite andb_false_r.
+      reflexivity.
+    - discriminate Halloc.
+  Qed.
+
+  (* Allocation constraints *)
+  Theorem unallocated_frames_only_alloc:
+    forall state state1 proc frame,
+      allocate_frame state proc frame = Some state1 ->
+      frame_in_list frame state.(allocated_frames) = false.
+  Proof.
+    intros state state1 proc frame H.
+    unfold allocate_frame in H.
+    destruct (andb (frame_in_list frame state.(valid_frames))
+                  (negb (frame_in_list frame state.(allocated_frames)))) eqn:Hcond.
+    - injection H as H_eq.
+      apply andb_prop in Hcond.
+      destruct Hcond as [_ Hnot_allocated].
+      apply negb_true_iff in Hnot_allocated.
+      exact Hnot_allocated.
+    - discriminate H.
+  Qed.
+
+  Theorem valid_frames_only_alloc: 
+    forall state state1 proc frame,
+      allocate_frame state proc frame = Some state1 ->
+      frame_in_list frame state.(valid_frames) = true.
+  Proof.
+    intros state state1 proc frame H.
+    unfold allocate_frame in H.
+    destruct (andb (frame_in_list frame state.(valid_frames))
+                  (negb (frame_in_list frame state.(allocated_frames)))) eqn:Hcond.
+    - injection H as H_eq.
+      apply andb_prop in Hcond.
+      destruct Hcond as [Hvalid _].
+      exact Hvalid.
+    - discriminate H.
+  Qed.
+
+  (* Combined allocation theorem *)
+  Theorem valid_unallocated_frames_only_alloc:
+    forall state state1 proc frame,
+      allocate_frame state proc frame = Some state1 ->
+      frame_in_list frame state.(valid_frames) = true /\
+      frame_in_list frame state.(allocated_frames) = false.
+  Proof.
+    intros state state1 proc frame H.
+    split.
+    - apply valid_frames_only_alloc in H. exact H.
+    - apply unallocated_frames_only_alloc in H. exact H.
+  Qed.
+
+  (* Deallocation constraints *)
+  Theorem allocated_frames_only_dealloc: 
+    forall state state1 frame,
+      deallocate_frame state frame = Some state1 ->
+      frame_in_list frame state.(allocated_frames) = true.
+  Proof.
+    intros state state1 frame H.
+    unfold deallocate_frame in H.
+    destruct (andb (frame_in_list frame state.(valid_frames))
+                  (frame_in_list frame state.(allocated_frames))) eqn:Hcond.
+    - injection H as H_eq.
+      apply andb_prop in Hcond.
+      destruct Hcond as [_ Hallocated].
+      exact Hallocated.
+    - discriminate H.
+  Qed.
+
+  Theorem valid_frames_only_dealloc:
+    forall state state1 frame,
+      deallocate_frame state frame = Some state1 ->
+      frame_in_list frame state.(valid_frames) = true.
+  Proof.
+    intros state state1 frame H.
+    unfold deallocate_frame in H.
+    destruct (andb (frame_in_list frame state.(valid_frames))
+                  (frame_in_list frame state.(allocated_frames))) eqn:Hcond.
+    - injection H as H_eq.
+      apply andb_prop in Hcond.
+      destruct Hcond as [Hvalid _].
+      exact Hvalid.
+    - discriminate H.
+  Qed.
+
+  (* Combined deallocation theorem *)
+  Theorem valid_allocated_frames_only_dealloc: 
+    forall state state1 frame,
+      deallocate_frame state frame = Some state1 ->
+      frame_in_list frame state.(valid_frames) = true /\
+      frame_in_list frame state.(allocated_frames) = true.
+  Proof.
+    intros state state1 frame H.
+    split.
+    - apply valid_frames_only_dealloc in H. exact H.
+    - apply allocated_frames_only_dealloc in H. exact H.
+  Qed.
+
+  (* Range checking *)
+  Theorem bitmapallocator_only_allocates_in_range:
+    forall state state1 proc frame,
+      allocate_frame state proc frame = Some state1 ->
+      frame.(pf_addr) >= state.(range).(pfr_start).(pf_addr) /\
+      frame.(pf_addr) <= state.(range).(pfr_end).(pf_addr).
+  Proof.
+    intros state state1 proc frame H.
+    unfold allocate_frame in H.
+    destruct (andb (frame_in_list frame state.(valid_frames))
+                  (negb (frame_in_list frame state.(allocated_frames)))) eqn:Hcond.
+    
+    - injection H as H_eq.
+      apply andb_prop in Hcond.
+      destruct Hcond as [Hvalid _].
+      apply state.(inv_valid_frames_in_range).
+      exact Hvalid.
+      
+    - discriminate H.
+  Qed.
+
+End BitmapAllocatorProofs.
