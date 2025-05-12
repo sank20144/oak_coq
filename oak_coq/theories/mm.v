@@ -73,6 +73,7 @@ Definition add_mapping (pt: PageTable) (va: v_addr) (pa: p_addr) : PageTable :=
 Definition remove_mapping (pt: PageTable) (va: v_addr) : PageTable :=
   {| pt_entries := filter (fun mapping => negb (Nat.eqb (fst mapping) va)) pt.(pt_entries) |}.
 
+
 (* Create a new empty page table *)
 Definition empty_page_table : PageTable := {| pt_entries := [] |}.
 
@@ -455,7 +456,7 @@ Section SupportLemmas.
       + simpl. rewrite H. apply IHrest.
   Qed.
 
-  Lemma remove_frame_owner_correct:
+Lemma remove_frame_owner_correct:
     forall frame owners,
       get_frame_owner frame (remove_frame_owner frame owners) = None.
   Proof.
@@ -481,7 +482,40 @@ Section PageTableProofs.
     unfold add_mapping, has_mapping.
     simpl. rewrite Nat.eqb_refl. reflexivity.
   Qed.
+      
+  Lemma remove_mapping_empty:
+    forall va,
+      remove_mapping empty_page_table va = empty_page_table.
+  Proof.
+    intros.
+    unfold empty_page_table, remove_mapping.
+    simpl. reflexivity.
+  Qed.   
 
+  Lemma remove_mapping_correct:
+    forall pt va,
+      has_mapping (remove_mapping pt va) va = false.
+  Proof.
+    intros pt va. 
+    unfold remove_mapping, has_mapping.
+    induction pt.(pt_entries) as [|[v p] rest IHrest].
+
+    - simpl. reflexivity.
+
+    - simpl in *.
+      destruct (Nat.eqb v va) eqn:Heq.
+
+      + apply Nat.eqb_eq in Heq. subst. 
+        simpl. 
+        (* The induction hypothesis says that there is no va in rest of the list.
+        The filter removes va from the list so only rest is there.
+        since va is not there the function should evaluate to false.
+        So simplifying should get us exact IHrest but it doesn't. *)
+      + apply Nat.eqb_neq in Heq. 
+        simpl.
+      
+      Admitted.
+      
   Lemma translate_addr_after_add:
   forall pt va pa, 
     translate_addr (add_mapping pt va pa) va = Some pa.
@@ -503,17 +537,19 @@ Section PageTableProofs.
   Qed.
 
   Lemma translate_addr_correct:
-    forall pt va pa,
-      has_mapping pt va = true ->
-      translate_addr pt va = Some pa ->
-      exists pa', In (va, pa') pt.(pt_entries) /\ pa = pa'.
+    forall pt va pa pt',
+      add_mapping pt va pa = pt' ->
+      translate_addr pt' va = Some pa.
   Proof.
-    intros pt va pa Hmap Htrans.
-    unfold has_mapping in Hmap.
-    unfold translate_addr in Htrans.
-    induction pt.(pt_entries) as [|[v p] rest IH].
-    - simpl in Hmap. discriminate.
-    Admitted.
+    intros. unfold add_mapping in H.
+    destruct (Nat.eqb va va) eqn:Hva.
+    - apply Nat.eqb_eq in Hva. subst.
+      unfold translate_addr. simpl.
+      rewrite Nat.eqb_refl. reflexivity.
+    - apply Nat.eqb_neq in Hva. 
+      contradict Hva.
+      reflexivity.
+  Qed.
     
   Lemma update_process_correct:
     forall procs proc,
