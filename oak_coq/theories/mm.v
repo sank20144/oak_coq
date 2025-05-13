@@ -73,7 +73,6 @@ Definition add_mapping (pt: PageTable) (va: v_addr) (pa: p_addr) : PageTable :=
 Definition remove_mapping (pt: PageTable) (va: v_addr) : PageTable :=
   {| pt_entries := filter (fun mapping => negb (Nat.eqb (fst mapping) va)) pt.(pt_entries) |}.
 
-
 (* Create a new empty page table *)
 Definition empty_page_table : PageTable := {| pt_entries := [] |}.
 
@@ -469,8 +468,16 @@ Lemma remove_frame_owner_correct:
       + simpl. rewrite H. apply IHrest.
 Qed.
 
-End SupportLemmas.
+Lemma v_addr_add_0_r:
+  forall va, va + 0 = va.
+Proof.
+  intros.
+  destruct va.
+  - simpl. reflexivity.
+  - apply Nat.add_0_r.
+Qed.
 
+End SupportLemmas.
 
 Section PageTableProofs.
   (* Properties about the page table operations *)
@@ -511,8 +518,8 @@ Section PageTableProofs.
         The filter removes va from the list so only rest is there.
         since va is not there the function should evaluate to false.
         So simplifying should get us exact IHrest but it doesn't. *)
-      + apply Nat.eqb_neq in Heq. 
-        simpl.
+      (* + apply Nat.eqb_neq in Heq. 
+        simpl. *)
       
       Admitted.
       
@@ -550,7 +557,49 @@ Section PageTableProofs.
       contradict Hva.
       reflexivity.
   Qed.
-    
+  
+  Lemma is_vaddr_free_correct:
+    forall pt va,
+      is_vaddr_free pt va = true ->
+      translate_addr pt va = None.
+  Proof.
+    intros pt va H.
+    unfold is_vaddr_free in H.
+    destruct (translate_addr pt va) eqn:E.
+    - discriminate H.
+    - reflexivity.
+  Qed.
+
+  Search (_ + 0 = _).
+
+  Lemma validate_vaddr_range_correct:
+    forall pt start_va size,
+      validate_vaddr_range pt start_va size = true ->
+      forall i, i < size -> 
+        is_vaddr_free pt (start_va + i) = true.
+  Proof.
+    intros pt start_va size H.
+    induction size as [|n IH] in start_va, H |- *.
+    - intros i Hi. lia.
+    - intros.
+      simpl in H.
+      destruct i as [|i'].
+      + (* i = 0 *)
+        destruct (is_vaddr_free pt start_va) eqn:Heq.
+        * simpl. 
+          rewrite v_addr_add_0_r.
+          exact Heq.
+        * discriminate H.
+        
+      + (* i = S i' *)
+        destruct (is_vaddr_free pt start_va) eqn:Heq.
+        * apply IH.
+          -- 
+        
+
+    Admitted.
+
+
   Lemma update_process_correct:
     forall procs proc,
     In proc (update_process procs proc).
@@ -571,7 +620,21 @@ Section PageTableProofs.
         new_proc.(p_pid) = proc.(p_pid) /\
         validate_vaddr_range new_proc.(p_pml4) hint_addr size = false.
   Proof.
-  Admitted.
+    intros sys proc hint_addr size new_sys Hmmap.
+    unfold mmap in Hmmap.
+    destruct (validate_vaddr_range (p_pml4 proc) hint_addr size) eqn:Hvalid; try discriminate.
+    destruct (allocate_frames size (memory_state sys) proc) eqn:Hall; try discriminate.
+    inversion Hmmap. subst new_sys.
+    simpl.
+    exists {| p_pml4 := map_frames_to_vaddr (p_pml4 proc) hint_addr (firstn size (allocated_frames b)); p_pid := p_pid proc |}.
+    split.
+    - simpl. apply update_process_correct.
+    - split. 
+      + simpl. reflexivity.
+      + simpl. 
+    Admitted.
+      
+      
 
 End PageTableProofs.
 
