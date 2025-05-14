@@ -477,6 +477,15 @@ Proof.
   - apply Nat.add_0_r.
 Qed.
 
+Lemma add_mapping_correct:
+    forall pt va pa,
+      has_mapping (add_mapping pt va pa) va = true.
+  Proof.
+    intros pt va pa.
+    unfold add_mapping, has_mapping.
+    simpl. rewrite Nat.eqb_refl. reflexivity.
+  Qed.
+
 Lemma map_frames_to_vaddr_adds_mapping:
   forall pt va frames,
     frames <> [] ->
@@ -485,7 +494,9 @@ Proof.
   intros pt va frames H.
   destruct frames as [|f rest].
   - contradiction.
-  - simpl. Admitted.
+  - simpl. 
+    (* With add_mapping_correct lemma we can
+    see that there is indeed a mapping in the pt. *) Admitted.
      
    
 
@@ -494,15 +505,7 @@ End SupportLemmas.
 
 Section PageTableProofs.
   (* Properties about the page table operations *)
-  Lemma add_mapping_correct:
-    forall pt va pa,
-      has_mapping (add_mapping pt va pa) va = true.
-  Proof.
-    intros pt va pa.
-    unfold add_mapping, has_mapping.
-    simpl. rewrite Nat.eqb_refl. reflexivity.
-  Qed.
-      
+  
   Lemma remove_mapping_empty:
     forall va,
       remove_mapping empty_page_table va = empty_page_table.
@@ -640,7 +643,7 @@ Section PageTableProofs.
     - simpl in *. apply update_process_correct.
     - split. 
       + simpl. reflexivity.
-      + simpl in *.
+      + simpl in *. 
         
         
          
