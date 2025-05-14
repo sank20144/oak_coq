@@ -477,6 +477,19 @@ Proof.
   - apply Nat.add_0_r.
 Qed.
 
+Lemma map_frames_to_vaddr_adds_mapping:
+  forall pt va frames,
+    frames <> [] ->
+    has_mapping (map_frames_to_vaddr pt va frames) va = true.
+Proof.
+  intros pt va frames H.
+  destruct frames as [|f rest].
+  - contradiction.
+  - simpl. Admitted.
+     
+   
+
+
 End SupportLemmas.
 
 Section PageTableProofs.
@@ -526,8 +539,8 @@ Section PageTableProofs.
   Search (filter _ (_ :: _)).   
 
   Lemma translate_addr_after_add:
-  forall pt va pa, 
-    translate_addr (add_mapping pt va pa) va = Some pa.
+    forall pt va pa, 
+      translate_addr (add_mapping pt va pa) va = Some pa.
   Proof.
     intros.
     unfold translate_addr, add_mapping.
@@ -574,31 +587,25 @@ Section PageTableProofs.
 
 
   Lemma validate_vaddr_range_correct:
-    forall pt start_va size,
-      validate_vaddr_range pt start_va size = true ->
-      forall i, i < size -> 
-        is_vaddr_free pt (start_va + i) = true.
+    forall pt start_va size i,
+      i < size ->
+      is_vaddr_free pt (start_va + i) = false ->
+      validate_vaddr_range pt start_va size = false.
   Proof.
-    intros pt start_va size H.
-    induction size as [|n IH] in start_va, H |- *.
-    - intros i Hi. lia.
-    - intros.
-      simpl in H.
+    intros pt start_va size i Hi Hfree.
+    revert start_va i Hfree Hi.
+    induction size as [|n IH]; intros.
+    - simpl in *. lia.
+    - simpl in *.
       destruct i as [|i'].
-      + (* i = 0 *)
-        destruct (is_vaddr_free pt start_va) eqn:Heq.
-        * simpl. 
-          rewrite v_addr_add_0_r.
-          exact Heq.
-        * discriminate H.
-        
-      + (* i = S i' *)
-        destruct (is_vaddr_free pt start_va) eqn:Heq.
-        * apply IH.
-          -- 
-        
-
-    Admitted.
+      + simpl. rewrite Nat.add_0_r in Hfree. rewrite Hfree. reflexivity.
+      + simpl in *.
+        destruct (is_vaddr_free pt start_va) eqn:Hf2.
+        * assert (Haddr: start_va + S i' = (start_va + 1) + i') by lia.
+          rewrite Haddr in Hfree.
+          apply IH with (i := i') in Hfree; [exact Hfree|lia].
+        * reflexivity.
+  Qed.
 
 
   Lemma update_process_correct:
@@ -627,12 +634,15 @@ Section PageTableProofs.
     destruct (allocate_frames size (memory_state sys) proc) eqn:Hall; try discriminate.
     inversion Hmmap.
     simpl.
+    
     exists {| p_pml4 := map_frames_to_vaddr (p_pml4 proc) hint_addr (firstn size (allocated_frames b)); p_pid := p_pid proc |}.
     split.
-    - simpl. apply update_process_correct.
+    - simpl in *. apply update_process_correct.
     - split. 
       + simpl. reflexivity.
       + simpl in *.
+        
+        
          
         
         
