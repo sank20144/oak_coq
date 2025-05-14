@@ -513,16 +513,18 @@ Section PageTableProofs.
       destruct (Nat.eqb v va) eqn:Heq.
 
       + apply Nat.eqb_eq in Heq. subst. 
-        simpl. 
-        (* The induction hypothesis says that there is no va in rest of the list.
-        The filter removes va from the list so only rest is there.
-        since va is not there the function should evaluate to false.
-        So simplifying should get us exact IHrest but it doesn't. *)
-      (* + apply Nat.eqb_neq in Heq. 
-        simpl. *)
-      
-      Admitted.
-      
+        simpl. rewrite filter_cons_False.
+        exact IHrest. simpl.
+        rewrite Nat.eqb_refl. simpl.
+        unfold not. intros. exact H.
+      + rewrite filter_cons_True.
+        * simpl. rewrite Heq. exact IHrest.
+        * simpl. rewrite Heq. 
+          simpl. reflexivity.
+    Qed.
+
+  Search (filter _ (_ :: _)).   
+
   Lemma translate_addr_after_add:
   forall pt va pa, 
     translate_addr (add_mapping pt va pa) va = Some pa.
@@ -570,7 +572,6 @@ Section PageTableProofs.
     - reflexivity.
   Qed.
 
-  Search (_ + 0 = _).
 
   Lemma validate_vaddr_range_correct:
     forall pt start_va size,
@@ -624,14 +625,18 @@ Section PageTableProofs.
     unfold mmap in Hmmap.
     destruct (validate_vaddr_range (p_pml4 proc) hint_addr size) eqn:Hvalid; try discriminate.
     destruct (allocate_frames size (memory_state sys) proc) eqn:Hall; try discriminate.
-    inversion Hmmap. subst new_sys.
+    inversion Hmmap.
     simpl.
     exists {| p_pml4 := map_frames_to_vaddr (p_pml4 proc) hint_addr (firstn size (allocated_frames b)); p_pid := p_pid proc |}.
     split.
     - simpl. apply update_process_correct.
     - split. 
       + simpl. reflexivity.
-      + simpl. 
+      + simpl in *.
+         
+        
+        
+        
     Admitted.
       
       
