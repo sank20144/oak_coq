@@ -199,6 +199,20 @@ Proof.
     + simpl. rewrite IH. reflexivity.
 Qed.
 
+Lemma get_bit_correct :
+  forall (bits : BitArray) (idx : nat),
+    idx < length bits ->
+    get_bit bits idx = nth idx bits false.
+Proof.
+  intros.
+  induction bits as [|b bs IH]; intros.
+  - simpl in *. lia.
+  - destruct idx as [|idx'].
+    + simpl. reflexivity.
+    + simpl in *. 
+      unfold get_bit in *.
+      simpl. reflexivity.
+Qed.
 
 (** Mark a range of frames as valid or invalid *)
 Program Definition mark_valid {S : PageSize} (alloc : BitmapAllocator S) 
@@ -361,6 +375,8 @@ Next Obligation.
 Qed.
 
 (* Helper Lemmas *)
+
+(** Lemma: setting a bit to true increases the count of ones exactly by 1 *)
 Lemma set_bit_false_to_true_increases_count : 
   forall (bits : BitArray) (idx : nat),
     idx < length bits ->
@@ -382,8 +398,285 @@ Proof.
       -- simpl in *. rewrite IH; auto. lia.
 Qed.
 
+Lemma nth_combine_default : forall {A B : Type} (l1 : list A) (l2 : list B) (n : nat) (d1 : A) (d2 : B),
+  length l1 = length l2 ->
+  nth n (combine l1 l2) (d1, d2) = (nth n l1 d1, nth n l2 d2).
+Proof.
+  intros A B l1 l2 n d1 d2 H_eq.
+  generalize dependent l2.
+  generalize dependent n.
+  induction l1 as [|a1 l1' IH]; intros n l2 H_eq.
+  - destruct l2; [|discriminate H_eq].
+    destruct n; simpl; reflexivity.
+  - destruct l2 as [|a2 l2']; [discriminate H_eq|].
+    destruct n as [|n'].
+    + simpl. reflexivity.
+    + simpl. apply IH.
+      simpl in H_eq. injection H_eq. auto.
+Qed.
 
+Lemma nth_map : forall {A B : Type} (f : A -> B) (l : list A) (n : nat) (d : A),
+  nth n (map f l) (f d) = f (nth n l d).
+Proof.
+  intros A B f l n d.
+  generalize dependent n.
+  induction l as [|a l' IH]; intros n.
+  - destruct n; simpl; reflexivity.
+  - destruct n as [|n'].
+    + simpl. reflexivity.
+    + simpl. apply IH.
+Qed.
 
+Search (S _ < S _).
+
+Lemma nth_map_negb : forall (l : list bool) (n : nat),
+  nth n (map negb l) false = 
+  if n <? length l then negb (nth n l false) else false.
+Proof.
+  intros l n.
+  generalize dependent n.
+  induction l as [|a l' IH]; intros n.
+  - simpl. destruct n; reflexivity.
+  - destruct n as [|n'].
+    + simpl. reflexivity.
+    + simpl. 
+      apply IH.
+Qed.
+
+(** Helper lemma about nth and map with andb function *)
+Lemma nth_map_andb : forall (l : list (bool * bool)) (n : nat),
+  nth n (map (fun '(x, y) => andb x y) l) false = 
+  let '(x, y) := nth n l (false, false) in andb x y.
+Proof.
+  intros l n.
+  generalize dependent n.
+  induction l as [|[a b] l' IH]; intros n.
+  - destruct n; simpl; reflexivity.
+  - destruct n as [|n'].
+    + simpl. reflexivity.
+    + simpl. apply IH.
+Qed.
+
+(** Length of combine is minimum of input lengths *)
+Lemma length_combine : forall {A B : Type} (l1 : list A) (l2 : list B),
+  length (combine l1 l2) = min (length l1) (length l2).
+Proof.
+  intros A B l1 l2.
+  generalize dependent l2.
+  induction l1 as [|a l1' IH]; intros l2.
+  - simpl. reflexivity.
+  - destruct l2 as [|b l2'].
+    + simpl. reflexivity.
+    + simpl. f_equal. apply IH.
+Qed.
+  
+(** Available bits are exactly those that are valid but not allocated *)
+Lemma available_correct : forall {S : PageSize} (alloc : BitmapAllocator S) (idx : nat),
+  get_bit (available alloc) idx = 
+  (get_bit (valid S alloc) idx && negb (get_bit (allocated S alloc) idx)).
+Proof.
+  intros S alloc idx.
+  unfold available, get_bit.
+  unfold bitand, bitnot.
+  assert (map_preserves_length: forall (A B : Type) (f : A -> B) (l : list A), 
+         length (map f l) = length l).
+        { 
+          intros A B f l. induction l; simpl; auto.
+        }
+  destruct (idx <? length (valid S alloc)) eqn:H_bound.
+  
+  - apply Nat.ltb_lt in H_bound.
+    rewrite nth_map_andb.
+    
+    assert (H_eq: length (allocated S alloc) = length (valid S alloc))
+      by (apply (bitmap_size_ok S alloc)).
+    rewrite nth_combine_default; auto.
+    rewrite nth_map_negb. simpl in *.
+    rewrite <- H_eq in H_bound.
+    rewrite <- Nat.ltb_lt in H_bound.
+    rewrite H_bound.
+    -- reflexivity.
+    -- simpl.
+       symmetry.
+       rewrite map_preserves_length. assumption.
+  - apply Nat.ltb_ge in H_bound.
+    assert (nth idx (valid S alloc) false = false).
+    { apply nth_overflow. assumption. }
+    rewrite H. simpl.
+    rewrite nth_overflow.
+    -- reflexivity.
+    -- simpl.
+       assert (length_combine_valid_allocated: length (combine (valid S alloc) (map negb (allocated S alloc))) = length (valid S alloc)).
+        {
+          rewrite length_combine.
+          assert (H_eq: length (allocated S alloc) = length (valid S alloc))
+            by (apply (bitmap_size_ok S alloc)).
+          
+          rewrite map_preserves_length.
+          rewrite H_eq. simpl. 
+          rewrite Nat.min_l.
+          -- reflexivity. 
+          -- reflexivity.
+        }
+  rewrite map_preserves_length.
+  rewrite length_combine_valid_allocated.
+  assumption.
+Qed.
+
+Lemma first_one_ge : forall bs start n,
+  first_one bs start = Some n -> n >= start.
+Proof.
+  intros.
+  generalize dependent n.
+  generalize dependent start.
+  induction bs as [|b bs' IH]; simpl in *.
+  - discriminate.
+  - destruct b eqn:Eb.
+    + simpl in *. intros.
+      injection H as H_eq.
+      rewrite <- H_eq.
+      apply Nat.le_refl.
+    + simpl in *. intros.
+      apply IH in H.
+      lia.
+Qed.
+      
+Lemma first_one_ge_offset : forall (bits : BitArray) (offset n : nat),
+  first_one bits offset = Some n -> n >= offset.
+Proof.
+  intros bits offset n H.
+  induction bits as [|b bs IH]; simpl in H.
+  - discriminate.
+  - destruct b.
+    + injection H as H. subst. apply Nat.le_refl.
+    + simpl in *. 
+      destruct bs as [|b bs'] eqn:Ebs.
+      * discriminate.
+      * destruct b eqn:Eb.
+        -- simpl in H.
+           injection H as H_eq.
+           rewrite <- H_eq.
+           apply le_S, Nat.le_refl.
+        -- simpl in *.
+           assert (H_ge : n >= S (S offset)).
+            { apply (first_one_ge bs' (S (S offset))). exact H. }
+           apply Nat.le_trans with (S (S offset)).
+           --- apply le_S, le_S, Nat.le_refl.
+           --- assumption.          
+Qed.
+
+Lemma first_one_predecessor : forall bs start n,
+  first_one bs (S start) = Some (S n) -> first_one bs start = Some n.
+Proof.
+  intros bs start n H.
+  generalize dependent n.
+  generalize dependent start.
+  induction bs as [|b bs' IH].
+  - intros start n H.
+    simpl in H. discriminate H.
+  - intros start n H.
+    destruct b.
+    + simpl in H.
+      injection H as H_eq.
+      assert (n = start) by (inversion H_eq; reflexivity).
+      subst n.
+      simpl. reflexivity.
+    + simpl in H.
+      simpl.
+      apply IH.
+      exact H.
+Qed.
+
+Lemma first_one_returns_true : forall (bits : BitArray) (n : nat),
+  first_one_from_zero bits = Some n -> get_bit bits n = true.
+Proof.
+  intros bits n H.
+  unfold first_one_from_zero in H.
+  unfold get_bit.
+  generalize dependent n.
+  induction bits as [|b bs IH].
+  - intros. discriminate.
+  - destruct b.
+    + destruct n.
+      * simpl. reflexivity.
+      * simpl in *. discriminate.
+    + destruct n.
+      * simpl in *.  intros.
+        assert (H_ge : 0 >= 1).
+        { apply (first_one_ge bs 1). exact H. }
+        lia.
+      * intros.
+        simpl in *.
+        assert (H_zero : first_one bs 0 = Some n).
+        {
+          apply first_one_predecessor with (start := 0).
+          exact H.
+        }
+        apply IH. assumption.    
+Qed.
+
+Lemma first_one_length_bound : forall bs start n,
+  first_one bs start = Some n -> n < start + length bs.
+Proof.
+  intros bs start n H.
+  generalize dependent n.
+  generalize dependent start.
+  induction bs as [|b bs' IH].
+  - intros start n H.
+    simpl in H.
+    discriminate H.
+    
+  - intros start n H.
+    destruct b eqn:Eb.
+    
+    + simpl in H.
+      injection H as H_eq.
+      rewrite <- H_eq.
+      simpl.
+      apply Nat.lt_add_pos_r; apply Nat.lt_0_succ.
+      
+    + simpl in H.
+      apply IH in H.
+      simpl.
+      lia. 
+Qed.
+
+Lemma first_one_in_bounds : forall (bits : BitArray) (n : nat),
+  first_one_from_zero bits = Some n -> n < length bits.
+Proof.
+  intros bits n H.
+  unfold first_one_from_zero in H.
+  induction bits as [|b bs IH]; simpl in H.
+  - discriminate.
+  - destruct b.
+    + destruct n.
+      * simpl. lia.
+      * discriminate.
+    + destruct n.
+      * simpl in *. lia.
+      * simpl in *.
+        assert (H_bound : S n < 1 + length bs).
+        {
+          apply first_one_length_bound.
+          exact H.
+        }
+        assumption.       
+Qed.
+
+Lemma available_length_eq : forall {S : PageSize} (alloc : BitmapAllocator S),
+  length (available alloc) = length (allocated S alloc).
+Proof.
+  intros S alloc.
+  unfold available, bitand, bitnot.
+  rewrite length_map.
+  rewrite length_combine.
+  rewrite length_map.
+  assert (H_eq: length (allocated S alloc) = length (valid S alloc))
+    by (apply (bitmap_size_ok S alloc)).
+  rewrite H_eq.
+  apply Nat.min_l.
+  reflexivity.
+Qed.
 
 (** * Theorems and Properties *)
 
@@ -402,8 +695,37 @@ Theorem allocate_frame_increases_count : forall {S : PageSize} (alloc : BitmapAl
   allocate_frame alloc = Some (frame, new_alloc) ->
   count_ones (allocated S new_alloc) = count_ones (allocated S alloc) + 1.
 Proof.
-  intros.
-Admitted.
+  intros S alloc frame new_alloc H_alloc.
+  unfold allocate_frame in H_alloc.
+ 
+  destruct (first_one_from_zero (available alloc)) eqn:H_first; [|discriminate].
+  destruct (frame_at_idx alloc n) eqn:H_frame; [|discriminate].
+  injection H_alloc as H_eq1 H_eq2.
+
+  assert (H_avail_true: get_bit (available alloc) n = true).
+  {
+    unfold first_one_from_zero in H_first.
+    apply first_one_returns_true in H_first.
+    assumption.
+  }
+  
+  assert (H_not_allocated: get_bit (allocated S alloc) n = false).
+  {
+    rewrite available_correct in H_avail_true.
+    apply Bool.andb_true_iff in H_avail_true.
+    destruct H_avail_true as [_ H_neg].
+    apply Bool.negb_true_iff in H_neg. assumption.
+  }
+
+  assert (H_idx_bound: n < length (allocated S alloc)).
+  {
+    apply first_one_in_bounds in H_first.
+    rewrite <- available_length_eq.
+    assumption.
+  }
+  rewrite <- H_eq2. 
+  apply set_bit_false_to_true_increases_count; assumption.
+Qed.
 
 (** After deallocating a frame, the number of allocated frames decreases by 1 *)
 Theorem deallocate_frame_decreases_count : forall {S : PageSize} (alloc : BitmapAllocator S) frame new_alloc,
