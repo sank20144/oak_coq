@@ -729,6 +729,138 @@ Proof.
          * assumption.
 Qed.
 
+Lemma frame_at_idx_injective : forall {S : PageSize} (alloc : BitmapAllocator S) i j frame,
+  frame_at_idx alloc i = Some frame ->
+  frame_at_idx alloc j = Some frame ->
+  i = j.
+Proof.
+  intros S alloc i j frame H_i H_j.
+  unfold frame_at_idx in H_i, H_j.
+  
+  set (start_addr := start_address S (start_frame S (range S alloc))).
+  set (end_addr := start_address S (end_frame S (range S alloc))).
+  set (max_idx := Z.to_nat ((end_addr - start_addr) / size S)).
+  
+  destruct (i <? max_idx) eqn:H_i_bound.
+  - destruct (j <? max_idx) eqn:H_j_bound.
+    + set (addr_i := Z.add start_addr (Z.mul (Z.of_nat i) (size S))) in H_i.
+      set (addr_j := Z.add start_addr (Z.mul (Z.of_nat j) (size S))) in H_j.
+      unfold max_idx in H_i_bound.
+      unfold max_idx in H_j_bound.
+      
+      unfold end_addr, start_addr in *.
+
+      rewrite H_i_bound in H_i.
+      rewrite H_j_bound in H_j.
+    
+      injection H_i as H_frame_i.
+      injection H_j as H_frame_j.
+      
+      simpl in *.
+      assert (H_addr_eq: addr_i = addr_j).
+      {
+        rewrite <- H_frame_i in H_frame_j.
+        injection H_frame_j as H_addr_eq_direct.
+        symmetry.
+        exact H_addr_eq_direct.
+      }
+      unfold addr_i, addr_j in H_addr_eq.
+      
+      assert (H_mul_eq: ((Z.of_nat i) * size S)%Z = ((Z.of_nat j) * size S)%Z).
+      {
+        apply Z.add_cancel_l with start_addr.
+        exact H_addr_eq.
+      }
+      
+      assert (H_of_nat_eq: Z.of_nat i = Z.of_nat j).
+      {
+        apply Z.mul_cancel_r with (size S).
+        - apply Z.neq_sym. apply size_nonzero.
+        - exact H_mul_eq.
+      }
+      apply Nat2Z.inj in H_of_nat_eq.
+      exact H_of_nat_eq.
+      
+    + unfold max_idx in H_i_bound.
+      unfold max_idx in H_j_bound.
+      unfold end_addr, start_addr in *.
+
+      rewrite H_i_bound in H_i.
+      rewrite H_j_bound in H_j.
+      discriminate H_j.
+      
+  - unfold max_idx in H_i_bound.
+    unfold end_addr, start_addr in *.
+    rewrite H_i_bound in H_i.
+    discriminate H_i.
+Qed.
+
+Lemma bitand_get_bit : forall (a b : BitArray) idx,
+  length a = length b ->
+  get_bit (bitand a b) idx = get_bit a idx && get_bit b idx.
+Proof.
+  intros a b idx H_eq.
+  unfold bitand, get_bit.
+  rewrite nth_map_andb.
+  rewrite nth_combine_default; auto.
+Qed.
+
+Lemma bitnot_get_bit : forall (bits : BitArray) idx,
+  idx < length bits ->
+  get_bit (bitnot bits) idx = negb (get_bit bits idx).
+Proof.
+  intros bits idx H_bound.
+  unfold bitnot, get_bit.
+  rewrite nth_map_negb.
+  rewrite <- Nat.ltb_lt in H_bound.
+  rewrite H_bound.
+  reflexivity.
+Qed.
+
+Lemma get_bit_set_bit_same : forall (bits : BitArray) idx value,
+  idx < length bits ->
+  get_bit (set_bit bits idx value) idx = value.
+Proof.
+  intros bits idx value H_bound.
+  generalize dependent idx.
+  induction bits as [|b bs IH]; intros idx H_bound.
+  - simpl in *. lia.
+  - destruct idx as [|idx'].
+    + simpl. reflexivity.
+    + simpl. unfold get_bit.
+      simpl. apply IH.
+      simpl in *.
+      lia.
+Qed.
+
+Lemma length_bitnot : forall (bits : BitArray),
+  length (bitnot bits) = length bits.
+Proof.
+  intro bits.
+  unfold bitnot.
+  apply length_map.
+Qed.
+
+Lemma set_bit_makes_unavailable : forall {S : PageSize} (alloc : BitmapAllocator S) idx,
+  idx < length (allocated S alloc) ->
+  get_bit (valid S alloc) idx = true ->
+  get_bit (allocated S alloc) idx = false ->
+  get_bit (bitand (valid S alloc) (bitnot (set_bit (allocated S alloc) idx true))) idx = false.
+Proof.
+  intros S alloc idx H_bound H_valid H_not_alloc.
+  rewrite bitand_get_bit.
+  - rewrite H_valid.
+    rewrite bitnot_get_bit.
+    + rewrite get_bit_set_bit_same; [|assumption].
+      simpl.
+      reflexivity.
+    + rewrite set_bit_preserves_length.
+      assumption.
+  - rewrite length_bitnot.
+    rewrite set_bit_preserves_length.
+    symmetry.
+    apply (bitmap_size_ok S alloc).
+Qed.
 
 (** * Theorems and Properties *)
 
@@ -826,8 +958,126 @@ Theorem no_double_allocation : forall {S : PageSize} (alloc : BitmapAllocator S)
   allocate_frame new_alloc1 = Some (frame2, new_alloc2) ->
   frame1 <> frame2.
 Proof.
+  intros S alloc frame1 new_alloc1 frame2 new_alloc2 H_alloc1 H_alloc2.
+  intro H_eq.
   
-Admitted.
+  unfold allocate_frame in H_alloc1.
+  destruct (first_one_from_zero (available alloc)) eqn:H_first1; [|discriminate].
+  destruct (frame_at_idx alloc n) eqn:H_frame1; [|discriminate].
+  injection H_alloc1 as H_frame1_eq H_alloc1_eq.
+  
+  unfold allocate_frame in H_alloc2.
+  destruct (first_one_from_zero (available new_alloc1)) eqn:H_first2; [|discriminate].
+  destruct (frame_at_idx new_alloc1 n0) eqn:H_frame2; [|discriminate].
+  injection H_alloc2 as H_frame2_eq H_alloc2_eq.
+  
+  rewrite <- H_frame1_eq in H_eq.
+  rewrite <- H_frame2_eq in H_eq.
+  
+  assert (H_same_idx: n = n0).
+  {
+    assert (H_addr_eq: start_address S p = start_address S p0).
+    { rewrite H_eq. reflexivity. }
+    
+    assert (H_range_same: range S alloc = range S new_alloc1).
+    {
+      rewrite <- H_alloc1_eq. simpl. reflexivity.
+    }
+    
+    unfold frame_at_idx in H_frame1, H_frame2.
+    
+    set (start_addr_1 := start_address S (start_frame S (range S alloc))) in H_frame1.
+    set (max_idx_1 := Z.to_nat ((start_address S (end_frame S (range S alloc)) - start_addr_1) / size S)) in H_frame1.
+    
+    set (start_addr_2 := start_address S (start_frame S (range S new_alloc1))) in H_frame2.
+    set (max_idx_2 := Z.to_nat ((start_address S (end_frame S (range S new_alloc1)) - start_addr_2) / size S)) in H_frame2.
+    
+    assert (H_start_eq: start_addr_1 = start_addr_2).
+    { unfold start_addr_1, start_addr_2. rewrite H_range_same. reflexivity. }
+    
+    assert (H_max_eq: max_idx_1 = max_idx_2).
+    { unfold max_idx_1, max_idx_2. rewrite H_range_same.
+    rewrite H_start_eq. reflexivity. }
+    
+    destruct (n <? max_idx_1) eqn:H_n_bound in H_frame1; [|discriminate].
+    rewrite H_max_eq in H_n_bound.
+    destruct (n0 <? max_idx_2) eqn:H_n0_bound in H_frame2; [|discriminate].
+    
+    set (addr_n := Z.add start_addr_1 (Z.mul (Z.of_nat n) (size S))) in H_frame1.
+    set (addr_n0 := Z.add start_addr_2 (Z.mul (Z.of_nat n0) (size S))) in H_frame2.
+    
+    injection H_frame1 as H_frame1_addr.
+    injection H_frame2 as H_frame2_addr.
+    
+    assert (H_p_addr: start_address S p = addr_n).
+    {
+      simpl in H_frame1_addr.
+      rewrite <- H_frame1_addr.
+      reflexivity.
+    }
+    
+    assert (H_p0_addr: start_address S p0 = addr_n0).
+    {
+      simpl in H_frame2_addr.
+      rewrite <- H_frame2_addr.
+      reflexivity.
+    }
+    
+    assert (H_frame_addr_eq: addr_n = addr_n0).
+    {
+      rewrite <- H_p_addr, <- H_p0_addr.
+      exact H_addr_eq.
+    }
+    
+    unfold addr_n, addr_n0 in H_frame_addr_eq.
+    rewrite H_start_eq in H_frame_addr_eq.
+    
+    assert (H_mul_eq: (Z.of_nat n * size S)%Z = (Z.of_nat n0 * size S)%Z).
+    {
+      apply Z.add_cancel_l with start_addr_2.
+      exact H_frame_addr_eq.
+    }
+    
+    assert (H_nat_eq: Z.of_nat n = Z.of_nat n0).
+    {
+      apply Z.mul_cancel_r with (size S).
+      - apply Z.neq_sym. apply size_nonzero.
+      - exact H_mul_eq.
+    }
+    
+    apply Nat2Z.inj in H_nat_eq.
+    exact H_nat_eq.
+  }
+
+  subst n0.
+  
+  assert (H_unavail: get_bit (available new_alloc1) n = false).
+  {
+    rewrite available_correct.
+    rewrite <- H_alloc1_eq. simpl.
+    
+    assert (H_idx_bound: n < length (allocated S alloc)).
+    {
+      apply first_one_in_bounds in H_first1.
+      rewrite <- available_length_eq.
+      assumption.
+    }
+    
+    rewrite get_bit_set_bit_same; [|assumption].
+    simpl.
+
+    destruct (get_bit (valid S alloc) n); reflexivity.
+  }
+  
+  assert (H_avail: get_bit (available new_alloc1) n = true).
+  {
+    apply first_one_returns_true in H_first2.
+    assumption.
+  }
+  
+  rewrite H_unavail in H_avail.
+  discriminate H_avail.
+Qed.
 
 (** * Process and System Types *)
 
