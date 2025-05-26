@@ -1416,7 +1416,7 @@ Program Definition mmap (sys : SystemState PAGE_SIZE_2MB) (pid : ProcessId)
           (* Allocate physical frames *)
           match allocate_frames frame_count (frame_allocator PAGE_SIZE_2MB sys) with
           | None => (MmapError ENOMEM, sys)
-          | Some (frames, new_allocator) =>
+          | Some (frames, allocator) =>
             
             (* Convert protection flags to page table flags *)
             let pt_flags := prot_to_ptflags prot in
@@ -1449,7 +1449,7 @@ Program Definition mmap (sys : SystemState PAGE_SIZE_2MB) (pid : ProcessId)
             (* Create new system state *)
             let new_sys := {|
               processes := new_processes;
-              frame_allocator := new_allocator;
+              frame_allocator := allocator;
               sys_unique_pids := _;
             |} in
             
@@ -1580,6 +1580,8 @@ Compute match (mmap (marked_process_system_state PAGE_SIZE_2MB range_128mb_512mb
          | _ => []
          end.
 
+(* *)
+
 (* Returned starting virtual address*)
 Compute match (mmap (marked_process_system_state PAGE_SIZE_2MB range_128mb_512mb 0) 0 
          (Some 4096%Z) 8192000%Z [PROT_READ] [MAP_PRIVATE; MAP_ANONYMOUS]) with
@@ -1589,52 +1591,6 @@ Compute match (mmap (marked_process_system_state PAGE_SIZE_2MB range_128mb_512mb
          end.
 
 Compute align_up 8192000%Z PAGE_SIZE_2MB.
-
-(* Not allowed to map since no process with pid 1 *)
-(*
-(* Not allowed to map *)
-Compute (mmap (empty_system_state size_4k range_0_8k) 1 (Some 4096%Z) 8192%Z [PROT_READ] [MAP_PRIVATE; MAP_ANONYMOUS; MAP_FIXED]).
-
-(* Not enough memory since bitmapallocator not initialized *)
-Compute (mmap (one_process_system_state size_4k range_0_8k 0) 0 (Some 4096%Z) 8192%Z [PROT_READ] [MAP_PRIVATE; MAP_ANONYMOUS]).
-
-Compute (mmap (marked_process_system_state size_4k range_0_8k 0) 0 
-         (Some 4096%Z) 8192%Z [PROT_READ] [MAP_PRIVATE; MAP_ANONYMOUS]).
-
-Compute match (mmap (marked_process_system_state size_4k range_0_128k 0) 0 
-         (Some 4096%Z) 8192%Z [PROT_READ] [MAP_PRIVATE; MAP_ANONYMOUS]) with
-         | inl (_, new_sys) => allocated _ (frame_allocator _ new_sys)
-         | inr err => []
-         end.
-
-Compute match (mmap (marked_process_system_state size_4k range_0_128k 0) 0 
-         (Some 4096%Z) 8192%Z [PROT_READ] [MAP_PRIVATE; MAP_ANONYMOUS]) with
-         | inl (_, new_sys) => valid _ (frame_allocator _ new_sys)
-         | inr err => []
-         end.
-
-Compute match (mmap (marked_process_system_state size_4k range_0_128k 0) 0 
-         (Some 4096%Z) 816%Z [PROT_READ] [MAP_PRIVATE; MAP_ANONYMOUS]) with
-         | inl (_, new_sys) => 
-             let proc := find (fun p => Nat.eqb (proc_id p) 0) (processes _ new_sys) in
-             match proc with
-             | Some p => proc_page_table p
-             | None => []
-             end
-         | inr err => []
-         end.
-
-Compute match (mmap (marked_process_system_state size_2m range_0_32m 0) 0 
-         (Some 4096000%Z) 819280%Z [PROT_READ] [MAP_PRIVATE; MAP_ANONYMOUS]) with
-         | inl (_, new_sys) => 
-             let proc := find (fun p => Nat.eqb (proc_id p) 0) (processes _ new_sys) in
-             match proc with
-             | Some p => proc_page_table p
-             | None => []
-             end
-         | inr err => []
-         end. *)
-(** Safety properties - These would need to be proven *)
 
 (** After mmap, the allocated memory is accessible to the process *)
 Theorem mmap_memory_accessible : forall (sys: SystemState PAGE_SIZE_2MB) pid addr size prot flags vaddr new_sys,
