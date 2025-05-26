@@ -1,10 +1,7 @@
 Require Import Coq.ZArith.ZArith.
 Require Import Coq.Bool.Bool.
 Require Import Coq.Lists.List.
-Require Import Coq.Structures.OrderedType.
 Require Import Coq.Structures.OrderedTypeEx.
-Require Import Coq.FSets.FMapList.
-Require Import Coq.FSets.FSetList.
 Require Import Coq.FSets.FMapAVL.
 Require Import Lia.
 Import ListNotations.
