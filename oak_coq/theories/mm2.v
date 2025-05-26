@@ -1135,10 +1135,12 @@ Definition flag_contains (flags: MmapFlagSet) (f: MmapFlag) : bool :=
 
 (** Error types for mmap operations *)
 Inductive Errno : Type :=
-  | ENOERR    (* No error *)
-  | EINVAL    (* Invalid argument *)
+  | EIO    (* Input/output error *)
+  | EBADF    (* Bad file descriptor *)
   | ENOMEM    (* Not enough memory *)
-  | EACCES    (* Permission denied *).
+  | EFAULT    (* Bad address *)
+  | EINVAL (* Invalid argument *)
+  | ENOSYS. (* Function not implemented *)
 
 (** * Page Tables and Memory Representation *)
 
