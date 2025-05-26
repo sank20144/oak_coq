@@ -678,6 +678,61 @@ Proof.
   reflexivity.
 Qed.
 
+(* if count_ones is 0, then all bits are false *)
+Lemma count_ones_zero_all_false : forall (bits : BitArray),
+  count_ones bits = 0 -> forall idx, get_bit bits idx = false.
+Proof.
+  intros bits H_zero idx.
+  generalize dependent idx.
+  unfold get_bit.
+  induction bits as [|b bs IH].
+  - destruct idx; simpl; reflexivity.
+  - simpl in H_zero.
+    destruct b.
+    + simpl in H_zero. discriminate H_zero.
+    + destruct idx as [|idx'].
+      * simpl. reflexivity.
+      * simpl in *. apply IH. assumption.
+Qed.
+
+Lemma set_bit_true_to_false_decreases_count : 
+  forall (bits : BitArray) (idx : nat),
+    idx < length bits ->
+    get_bit bits idx = true ->
+    count_ones (set_bit bits idx false) = count_ones bits - 1.
+Proof.
+  intros bits idx H_len H_true.
+  generalize dependent idx.
+  induction bits as [|b bs IH]; intros idx H_len H_true.
+  - simpl in *. lia.
+  - destruct idx as [|idx'].
+    + simpl in *. 
+      destruct b.
+      -- simpl. lia.
+      -- simpl in H_true. discriminate H_true.
+    + simpl in *. 
+      destruct b; simpl.
+      -- rewrite IH.
+         * assert (H_bs_true: get_bit bs idx' = true).
+           { simpl in H_true. assumption. }
+           assert (H_count_pos: count_ones bs > 0).
+           { 
+             destruct (count_ones bs) eqn:H_count.
+             - pose proof (count_ones_zero_all_false bs H_count idx') as H_false.
+               rewrite H_false in H_bs_true.
+               discriminate H_bs_true.
+             - lia.
+           }
+           lia.
+         * lia.
+         * assumption.
+      -- rewrite IH.
+         * lia.
+         * lia. 
+         * assumption.
+Qed.
+
+
 (** * Theorems and Properties *)
 
 (** A newly created allocator has no allocated frames *)
@@ -732,8 +787,41 @@ Theorem deallocate_frame_decreases_count : forall {S : PageSize} (alloc : Bitmap
   deallocate_frame alloc frame = Some new_alloc ->
   count_ones (allocated S new_alloc) = count_ones (allocated S alloc) - 1.
 Proof.
+  intros S alloc frame new_alloc H_dealloc.
+  unfold deallocate_frame in H_dealloc.
   
-Admitted.
+  destruct (frame_idx alloc frame) eqn:H_idx; [|discriminate].
+  
+  destruct (negb (get_bit (valid S alloc) n)) eqn:H_valid; [discriminate|].
+  destruct (negb (get_bit (allocated S alloc) n)) eqn:H_allocated; [discriminate|].
+  
+  injection H_dealloc as H_eq.
+  
+  assert (H_frame_valid: get_bit (valid S alloc) n = true).
+  {
+    apply Bool.negb_false_iff in H_valid. assumption.
+  }
+  
+  assert (H_frame_allocated: get_bit (allocated S alloc) n = true).
+  {
+    apply Bool.negb_false_iff in H_allocated. assumption.
+  }
+  
+  assert (H_idx_bound: n < length (allocated S alloc)).
+  { unfold get_bit in H_frame_valid.
+    destruct (n <? length (valid S alloc)) eqn:H_n_bound.
+    - apply Nat.ltb_lt in H_n_bound.
+      rewrite (bitmap_size_ok S alloc).
+      exact H_n_bound.
+    - apply Nat.ltb_ge in H_n_bound.
+      rewrite nth_overflow in H_frame_valid.
+      + discriminate H_frame_valid.
+      + exact H_n_bound.
+  }
+  
+  rewrite <- H_eq.
+  apply set_bit_true_to_false_decreases_count; assumption.
+Qed.
 
 (** A frame cannot be allocated twice without being deallocated *)
 Theorem no_double_allocation : forall {S : PageSize} (alloc : BitmapAllocator S) frame1 new_alloc1 frame2 new_alloc2,
