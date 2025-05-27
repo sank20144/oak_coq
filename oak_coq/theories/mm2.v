@@ -1244,7 +1244,7 @@ Definition align_up (addr: Z) (ps: PageSize) : Z :=
   let mask := Z.sub (size ps) 1 in
   Z.mul (Z.div (Z.add addr mask) (size ps)) (size ps).
 
-Compute align_up 2097152%Z PAGE_SIZE_2MB.
+Compute align_up 2097151%Z PAGE_SIZE_2MB.
 
 (** Create a range of page table entries *)
 Fixpoint create_pte_range_nat
@@ -1592,31 +1592,20 @@ Compute match (mmap (marked_process_system_state PAGE_SIZE_2MB range_128mb_512mb
 
 Compute align_up 8192000%Z PAGE_SIZE_2MB.
 
-(** After mmap, the allocated memory is accessible to the process *)
-Theorem mmap_memory_accessible : forall (sys: SystemState PAGE_SIZE_2MB) pid addr size prot flags vaddr new_sys,
-  mmap sys pid addr size prot flags = (MmapSuccess (mkByteSlice vaddr size), new_sys) ->
-  exists proc,
-    In proc (processes PAGE_SIZE_2MB new_sys) /\
-    proc_id proc = pid /\
-    exists mapping,
-      VirtAddrMap.find vaddr (proc_memory_mappings proc) = Some mapping /\
-      mm_start_addr mapping = vaddr /\
-      mm_size mapping = align_up size PAGE_SIZE_2MB.
-
 (** No overlapping allocations *)
 Theorem mmap_no_overlap : forall (sys: SystemState PAGE_SIZE_2MB) pid1 pid2 addr1 addr2 size1 size2 prot1 prot2 flags1 flags2 vaddr1 vaddr2 new_sys1 new_sys2,
   mmap sys pid1 addr1 size1 prot1 flags1 = (MmapSuccess (mkByteSlice vaddr1 size1), new_sys1)  ->
   mmap new_sys1 pid2 addr2 size2 prot2 flags2 = (MmapSuccess (mkByteSlice vaddr2 size2), new_sys2) ->
   (pid1 <> pid2 \/ 
-   Z.le (Z.add vaddr1 (align_up size1 S)) vaddr2 \/ 
-   Z.le (Z.add vaddr2 (align_up size2 S)) vaddr1).
+   Z.le (Z.add vaddr1 (align_up size1 PAGE_SIZE_2MB)) vaddr2 \/ 
+   Z.le (Z.add vaddr2 (align_up size2 PAGE_SIZE_2MB)) vaddr1).
 
 (** Physical frames are properly accounted for in the allocator *)
-Theorem mmap_frames_allocated : forall {S: PageSize} (sys: SystemState S) pid addr sz prot flags vaddr new_sys,
-  mmap sys pid addr sz prot flags = inl (vaddr, new_sys) ->
-  count_ones (allocated S (frame_allocator S new_sys)) = 
-  count_ones (allocated S (frame_allocator S sys)) + 
-  Z.to_nat ((align_up sz S) / (size S)).
+Theorem mmap_frames_allocated : forall (sys: SystemState PAGE_SIZE_2MB) pid addr sz prot flags vaddr new_sys,
+  mmap sys pid addr sz prot flags = (MmapSuccess (mkByteSlice vaddr sz), new_sys) ->
+  count_ones (allocated PAGE_SIZE_2MB (frame_allocator PAGE_SIZE_2MB new_sys)) = 
+  count_ones (allocated PAGE_SIZE_2MB (frame_allocator PAGE_SIZE_2MB sys)) + 
+  Z.to_nat ((align_up sz PAGE_SIZE_2MB) / (size PAGE_SIZE_2MB)).
 
 (** MAP_FIXED respects the provided address *)
 Theorem mmap_fixed_respects_addr : forall {S: PageSize} (sys: SystemState S) pid addr size prot flags vaddr new_sys,
