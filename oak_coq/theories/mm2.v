@@ -862,6 +862,108 @@ Proof.
     apply (bitmap_size_ok S alloc).
 Qed.
 
+Lemma frame_at_idx_frame_idx_inverse : forall {S : PageSize} (alloc : BitmapAllocator S) (idx : nat) (frame : PhysFrame S),
+  frame_at_idx alloc idx = Some frame ->
+  frame_idx alloc frame = Some idx.
+Proof.
+  intros S alloc idx frame H_at_idx.
+  unfold frame_at_idx in H_at_idx.
+  unfold frame_idx.
+  
+  set (start_addr := start_address S (start_frame S (range S alloc))).
+  set (end_addr := start_address S (end_frame S (range S alloc))).
+  set (max_idx := Z.to_nat ((end_addr - start_addr) / size S)).
+
+  destruct (idx <? Z.to_nat
+  ((start_address S (end_frame S (range S alloc)) - start_address S
+  (start_frame S (range S alloc))) / size S)) eqn:H_bound in H_at_idx; [|discriminate].
+  
+  set (computed_addr := Z.add start_addr (Z.mul (Z.of_nat idx) (size S))).
+  injection H_at_idx as H_frame_eq.
+  
+  assert (H_frame_addr: start_address S frame = computed_addr).
+  { simpl in H_frame_eq. rewrite <- H_frame_eq. reflexivity. }
+  
+  rewrite H_frame_addr.
+  
+  assert (H_not_lt_start: (Z.ltb computed_addr start_addr) = false).
+  {
+    apply Z.ltb_ge.
+    unfold computed_addr.
+    assert (H_pos: (0 <= Z.of_nat idx * size S)%Z).
+    {
+      apply Z.mul_nonneg_nonneg.
+      - apply Nat2Z.is_nonneg.
+      - destruct S as [sz pos]. simpl. lia.
+    }
+    lia.
+  }
+  
+  assert (H_not_gt_end: (Z.ltb end_addr computed_addr) = false).
+  {
+    apply Z.ltb_ge.
+    unfold computed_addr, end_addr, start_addr.
+    
+    apply Nat.ltb_lt in H_bound.
+    unfold max_idx in H_bound.
+    
+    assert (H_idx_bound: (Z.of_nat idx < (end_addr - start_addr) / size S)%Z).
+    {
+      rewrite <- Z2Nat.id.
+      - apply Nat2Z.inj_lt. exact H_bound.
+      - apply Z.div_pos.
+        + unfold end_addr, start_addr.
+          assert (H_range: (start_address S (start_frame S (range S alloc)) <= 
+                           start_address S (end_frame S (range S alloc)))%Z).
+          { exact (range_valid S (range S alloc)). }
+          lia.
+        + destruct S as [sz pos]. simpl. lia.
+    }
+    
+    assert (H_mul_bound: (Z.of_nat idx * size S < end_addr - start_addr)%Z).
+    {
+      assert (H_pos: (0 < size S)%Z).
+      { destruct S as [sz pos]. simpl. apply Z.gt_lt_iff. exact pos. }
+      
+      assert (H_mul: (Z.of_nat idx * size S < (end_addr - start_addr) / size S * size S)%Z).
+      {
+        apply Z.mul_lt_mono_pos_r.
+        - exact H_pos.
+        - exact H_idx_bound.
+      }
+      
+      assert (H_div_mul: ((end_addr - start_addr) / size S * size S <= end_addr - start_addr)%Z).
+      {
+        pose proof (Z.div_mod (end_addr - start_addr) (size S)) as H_div_mod.
+        assert (H_nz: size S <> 0%Z) by (apply Z.neq_sym; apply size_nonzero).
+        specialize (H_div_mod H_nz).
+        
+        assert (H_mod_nonneg: (0 <= (end_addr - start_addr) mod size S)%Z).
+        { apply Z.mod_pos_bound. exact H_pos. }
+        
+        lia.
+      }
+      
+      eapply Z.lt_le_trans.
+      - exact H_mul.
+      - exact H_div_mul.
+    }
+    
+    lia.
+  }
+  
+  rewrite H_not_lt_start, H_not_gt_end.
+  simpl.
+  unfold computed_addr.
+  assert (H_sub_cancel: (start_addr + Z.of_nat idx * size S - start_addr)%Z = (Z.of_nat idx * size S)%Z).
+  { lia. }
+  rewrite H_sub_cancel.
+  rewrite Z.div_mul.
+  - rewrite Nat2Z.id. reflexivity.
+  - apply Z.neq_sym. apply size_nonzero.
+Qed.
+
+
 (** * Theorems and Properties *)
 
 (** A newly created allocator has no allocated frames *)
@@ -1079,6 +1181,122 @@ Proof.
   discriminate H_avail.
 Qed.
 
+(* A frame can only be allocated if it is valid and not already allocated *)
+Theorem frame_allocation_valid_unallocated: forall {S : PageSize} (alloc : BitmapAllocator S) frame new_alloc,
+  allocate_frame alloc = Some (frame, new_alloc) ->
+  exists idx, 
+  frame_idx alloc frame = Some idx /\
+  get_bit (valid S alloc) idx = true /\
+  get_bit (allocated S alloc) idx = false.
+Proof.
+  intros S alloc frame new_alloc H_alloc.
+  unfold allocate_frame in H_alloc.
+  
+  destruct (first_one_from_zero (available alloc)) as [n|] eqn:H_first; [|discriminate].
+  
+  destruct (frame_at_idx alloc n) as [f|] eqn:H_frame; [|discriminate].
+  
+  injection H_alloc as H_frame_eq H_alloc_eq.
+  subst frame.
+
+  exists n.
+  
+  split.
+  - apply frame_at_idx_frame_idx_inverse.
+    exact H_frame.
+    
+  - split. 
+    assert (H_avail: get_bit (available alloc) n = true).
+    { apply first_one_returns_true. exact H_first. }
+    
+    unfold available in H_avail.
+    rewrite bitand_get_bit in H_avail.
+    + destruct (get_bit (valid S alloc) n) eqn:H_valid.
+      * reflexivity.
+      * simpl in H_avail. discriminate H_avail.
+    + apply eq_sym.
+      rewrite length_bitnot.
+      apply bitmap_size_ok.
+    + assert (H_avail: get_bit (available alloc) n = true).
+      { apply first_one_returns_true. exact H_first. }
+      rewrite available_correct in H_avail.
+      apply Bool.andb_true_iff in H_avail.
+      destruct H_avail as [_ H_neg].
+      apply Bool.negb_true_iff in H_neg.
+      exact H_neg.
+Qed.
+    
+(* A frame can only be deallocated if its valid and allocated *)
+Theorem frame_deallocation_valid_allocated: forall {S : PageSize} (alloc : BitmapAllocator S) frame new_alloc,
+  deallocate_frame alloc frame = Some new_alloc ->
+  exists idx, 
+  frame_idx alloc frame = Some idx /\
+  get_bit (valid S alloc) idx = true /\
+  get_bit (allocated S alloc) idx = true.
+Proof.
+  intros S alloc frame new_alloc H_dealloc.
+  unfold deallocate_frame in H_dealloc.
+  
+  destruct (frame_idx alloc frame) as [n|] eqn:H_idx; [|discriminate].
+  
+  destruct (negb (get_bit (valid S alloc) n)) eqn:H_valid; [discriminate|].
+  destruct (negb (get_bit (allocated S alloc) n)) eqn:H_allocated; [discriminate|].
+  
+  injection H_dealloc as H_new_alloc_eq.
+  
+  exists n.
+  
+  split.
+  - reflexivity.
+  
+  - split.
+    + apply Bool.negb_false_iff in H_valid. exact H_valid.
+    + apply Bool.negb_false_iff in H_allocated. exact H_allocated.
+Qed.
+
+(* A deallocated frame changes the new bitmaps allocated index to false *)
+Theorem deallocate_frame_changes_allocated: forall {S : PageSize} (alloc : BitmapAllocator S) frame new_alloc idx,
+  deallocate_frame alloc frame = Some new_alloc ->
+  frame_idx alloc frame = Some idx ->
+  get_bit (allocated S new_alloc) idx = false.
+Proof.
+  intros S alloc frame new_alloc idx H_dealloc H_idx.
+  unfold deallocate_frame in H_dealloc.
+  
+  destruct (frame_idx alloc frame) as [n|] eqn:H_frame_idx; [|discriminate].
+  
+  destruct (negb (get_bit (valid S alloc) n)) eqn:H_valid; [discriminate|].
+  destruct (negb (get_bit (allocated S alloc) n)) eqn:H_allocated; [discriminate|].
+  
+  injection H_dealloc as H_new_alloc_eq.
+  
+  assert (H_idx_eq: n = idx).
+  {
+    injection H_idx as H_idx_eq.
+    exact H_idx_eq.
+  }
+  
+  rewrite <- H_idx_eq.
+  rewrite <- H_new_alloc_eq.
+  simpl.
+  
+  assert (H_idx_bound: n < length (allocated S alloc)).
+  {
+    apply Bool.negb_false_iff in H_allocated.
+    unfold get_bit in H_allocated.
+    destruct (n <? length (allocated S alloc)) eqn:H_bound.
+    - apply Nat.ltb_lt in H_bound. exact H_bound.
+    - apply Nat.ltb_ge in H_bound.
+      rewrite nth_overflow in H_allocated.
+      + discriminate H_allocated.
+      + exact H_bound.
+  }
+  
+  apply get_bit_set_bit_same.
+  exact H_idx_bound.
+Qed.
+
+
 (** * Process and System Types *)
 
 (** Process identifier *)
@@ -1244,7 +1462,7 @@ Definition align_up (addr: Z) (ps: PageSize) : Z :=
   let mask := Z.sub (size ps) 1 in
   Z.mul (Z.div (Z.add addr mask) (size ps)) (size ps).
 
-Compute align_up 2097151%Z PAGE_SIZE_2MB.
+Compute align_up 2097152%Z PAGE_SIZE_2MB.
 
 (** Create a range of page table entries *)
 Fixpoint create_pte_range_nat
@@ -1519,6 +1737,9 @@ Next Obligation.
   assumption.
 Qed.
 
+
+(* Test cases for mmap function *)
+
 Definition range_0_64m : PhysFrameRange PAGE_SIZE_2MB.
 Proof.
   refine {|
@@ -1538,9 +1759,6 @@ Proof.
   |}.
   - simpl. lia. Unshelve. simpl. reflexivity. simpl. reflexivity.
   Defined.
-
-
-(* Test cases for mmap function *)
 
 (* Not allowed to map since no process with pid 1 *)
 Compute (mmap (empty_system_state PAGE_SIZE_2MB range_0_64m) 1 (Some 4096%Z) 8192%Z [PROT_READ] [MAP_PRIVATE; MAP_ANONYMOUS]).
@@ -1580,7 +1798,22 @@ Compute match (mmap (marked_process_system_state PAGE_SIZE_2MB range_128mb_512mb
          | _ => []
          end.
 
-(* *)
+(* Page table after mapping a range of pages twice *)
+Compute match (mmap (marked_process_system_state PAGE_SIZE_2MB range_128mb_512mb 0) 0 
+         (Some 4096%Z) 8192000%Z [PROT_READ] [MAP_PRIVATE; MAP_ANONYMOUS]) with
+         | (MmapSuccess _, new_sys) => 
+             (* Try to map again at a different address *)
+             match (mmap new_sys 0 (Some 50582912%Z) 4194304%Z [PROT_WRITE] [MAP_PRIVATE; MAP_ANONYMOUS]) with
+             | ( _, final_sys) =>
+                 let proc := find (fun p => Nat.eqb (proc_id p) 0) (processes _ final_sys) in
+                 match proc with
+                 | Some p => (length (proc_page_table p), proc_page_table p)
+                 | None => (0, [])
+                 end
+             
+             end
+         | _ => (0, [])
+         end.
 
 (* Returned starting virtual address*)
 Compute match (mmap (marked_process_system_state PAGE_SIZE_2MB range_128mb_512mb 0) 0 
@@ -1591,37 +1824,6 @@ Compute match (mmap (marked_process_system_state PAGE_SIZE_2MB range_128mb_512mb
          end.
 
 Compute align_up 8192000%Z PAGE_SIZE_2MB.
-
-(** No overlapping allocations *)
-Theorem mmap_no_overlap : forall (sys: SystemState PAGE_SIZE_2MB) pid1 pid2 addr1 addr2 size1 size2 prot1 prot2 flags1 flags2 vaddr1 vaddr2 new_sys1 new_sys2,
-  mmap sys pid1 addr1 size1 prot1 flags1 = (MmapSuccess (mkByteSlice vaddr1 size1), new_sys1)  ->
-  mmap new_sys1 pid2 addr2 size2 prot2 flags2 = (MmapSuccess (mkByteSlice vaddr2 size2), new_sys2) ->
-  (pid1 <> pid2 \/ 
-   Z.le (Z.add vaddr1 (align_up size1 PAGE_SIZE_2MB)) vaddr2 \/ 
-   Z.le (Z.add vaddr2 (align_up size2 PAGE_SIZE_2MB)) vaddr1).
-
-(** Physical frames are properly accounted for in the allocator *)
-Theorem mmap_frames_allocated : forall (sys: SystemState PAGE_SIZE_2MB) pid addr sz prot flags vaddr new_sys,
-  mmap sys pid addr sz prot flags = (MmapSuccess (mkByteSlice vaddr sz), new_sys) ->
-  count_ones (allocated PAGE_SIZE_2MB (frame_allocator PAGE_SIZE_2MB new_sys)) = 
-  count_ones (allocated PAGE_SIZE_2MB (frame_allocator PAGE_SIZE_2MB sys)) + 
-  Z.to_nat ((align_up sz PAGE_SIZE_2MB) / (size PAGE_SIZE_2MB)).
-
-(** MAP_FIXED respects the provided address *)
-Theorem mmap_fixed_respects_addr : forall {S: PageSize} (sys: SystemState S) pid addr size prot flags vaddr new_sys,
-  flag_contains flags MAP_FIXED = true ->
-  mmap sys pid (Some addr) size prot flags = inl (vaddr, new_sys) ->
-  vaddr = addr.
-
-(** Protection flags are properly set in the page table entries *)
-Theorem mmap_protection_set : forall {S: PageSize} (sys: SystemState S) pid addr size prot flags vaddr new_sys proc pte,
-  mmap sys pid addr size prot flags = inl (vaddr, new_sys) ->
-  In proc (processes S new_sys) ->
-  proc_id proc = pid ->
-  In pte (proc_page_table proc) ->
-  Z.ge (pte_virt_addr pte) vaddr ->
-  Z.lt (pte_virt_addr pte) (Z.add vaddr (align_up size S)) ->
-  pte_flags pte = prot_to_ptflags prot.
 
 (** * Usage *)
 
@@ -1820,4 +2022,3 @@ Compute
       Z.eqb (start_address _ orig_frame) (start_address _ new_frame)
   | _, _ => false
   end. *)
-
