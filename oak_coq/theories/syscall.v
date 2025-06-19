@@ -6,7 +6,7 @@ Require Import Coq.FSets.FMapAVL.
 Require Import Lia.
 Import ListNotations.
 
-From XY Require Import mm2.
+From XY Require Export mm2.
 
 (** * Process and System Types *)
 
