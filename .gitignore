@@ -5,3 +5,7 @@
 *.vos
 *.aux
 *.cache
+*.tex
+*.sty
+.envrc
+settings.json
