@@ -963,7 +963,6 @@ Proof.
   - apply Z.neq_sym. apply size_nonzero.
 Qed.
 
-
 (** * Theorems and Properties *)
 
 (** A newly created allocator has no allocated frames *)
@@ -1168,6 +1167,22 @@ Proof.
   
   apply get_bit_set_bit_same.
   exact H_idx_bound.
+Qed.
+
+Theorem allocate_frame_preserves_valid : 
+  forall {S : PageSize} (alloc : BitmapAllocator S) frame new_alloc idx,
+  allocate_frame alloc = Some (frame, new_alloc) ->
+  frame_idx alloc frame = Some idx ->
+  get_bit (valid S alloc) idx = get_bit (valid S new_alloc) idx.
+Proof.
+  intros S alloc frame new_alloc idx H_alloc H_idx.
+  unfold allocate_frame in H_alloc.
+  destruct (first_one_from_zero (available alloc)) eqn:H_first; [|discriminate].
+  destruct (frame_at_idx alloc n) eqn:H_frame; [|discriminate].
+  injection H_alloc as H_frame_eq H_alloc_eq.
+  subst frame new_alloc.
+  simpl.
+  reflexivity.
 Qed.
 
 (** A frame cannot be allocated twice without being deallocated *)
