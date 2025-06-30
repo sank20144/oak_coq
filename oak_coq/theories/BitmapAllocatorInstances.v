@@ -53,6 +53,16 @@ Proof.
   - simpl. lia. Unshelve. simpl. reflexivity. simpl. reflexivity.
   Defined. 
 
+Definition range_0_512gb : PhysFrameRange size_2m.
+Proof.
+  refine {|
+    start_frame := {| start_address := 0%Z; frame_aligned := _ |};
+    end_frame := {| start_address := 549755813888%Z; frame_aligned := _ |};
+    range_valid := _
+  |}.
+  - simpl. lia. Unshelve. simpl. reflexivity. simpl. reflexivity.
+  Defined.
+
 (** * Example Allocator Instances *)
 
 Definition marked_allocator_0_8k : BitmapAllocator size_4k :=
@@ -73,9 +83,30 @@ Definition marked_allocator_0_32m : BitmapAllocator size_2m :=
   | None => new_allocator range_0_32m
   end.
 
+Definition marked_allocator_0_512gb : BitmapAllocator size_2m :=
+  match mark_valid (new_allocator range_0_512gb) range_0_512gb true with
+  | Some alloc => alloc
+  | None => new_allocator range_0_512gb
+  end.
+
 (** * Example Computation *)
 
 Compute let alloc := marked_allocator_0_128k in
+  match allocate_frame alloc with
+  | Some (frame1, alloc1) => 
+      (start_address _ frame1,
+       match allocate_frame alloc1 with
+       | Some (frame2, alloc2) => 
+           (start_address _ frame2, 
+            allocated _ alloc2)
+       | None => ((-1)%Z, [])
+       end)
+  | None => ((-1)%Z, ((-1)%Z, []))
+  end.
+
+(** * Example Bitmap Allocator Instance for Oak restricted kernel *)
+
+Compute let alloc := marked_allocator_0_512gb in
   match allocate_frame alloc with
   | Some (frame1, alloc1) => 
       (start_address _ frame1,
