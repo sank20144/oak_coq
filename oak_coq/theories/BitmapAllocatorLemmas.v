@@ -9,8 +9,6 @@ From XY Require Import BitmapAllocatorCore.
 
 (** * Supporting Lemmas for BitmapAllocator *)
 
-Search (S _ < S _).
-
 Lemma nth_map : forall {A B : Type} (f : A -> B) (l : list A) (n : nat) (d : A),
   nth n (map f l) (f d) = f (nth n l d).
 Proof.
