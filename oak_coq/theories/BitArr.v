@@ -10,8 +10,6 @@ From stdpp Require Import bitvector.
 
 Definition BitArray (n : nat) := bv (N.of_nat n).
 
-(** * Utility Functions *)
-
 (** Get value from bitmap at index *)
 Definition get_bit {n : nat} (bits : BitArray n) (idx : nat) : bool :=
   if idx <? n then
@@ -28,8 +26,6 @@ Definition set_bit {n : nat} (bits : BitArray n) (idx : nat) (value : bool) : Bi
       Z.land current_val (Z.lnot (Z.shiftl 1 (Z.of_nat idx))) in
     Z_to_bv (N.of_nat n) new_val
   else bits.
-
-(** Convert Z to BitArray *)
 
 (** Perform logical AND between two bitmaps *)
 Definition bitand {n : nat} (a b : BitArray n) : BitArray n :=
@@ -72,7 +68,6 @@ Fixpoint count_ones_helper {n : nat} (bits : BitArray n) (fuel : nat) (i : nat) 
 Definition count_ones {n : nat} (bits : BitArray n) : nat :=
   count_ones_helper bits n 0 0.
 
-(** * Constructor and Conversion Functions *)
 
 (** Create zero-initialized BitArray *)
 Definition make_bitarray (n : nat) : BitArray n :=
