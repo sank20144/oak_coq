@@ -14,10 +14,22 @@ Local Open Scope uint63_scope.
 (** Physical address representation *)
 Definition PhysAddr := Uint63.int.
 
-(** Represents a page size *)
+(** Valid page sizes: 4KB or 2MB *)
+Inductive ValidPageSize : Set :=
+  | Page4KB : ValidPageSize
+  | Page2MB : ValidPageSize.
+
+(** Convert valid page size to actual size in bytes *)
+Definition page_size_to_bytes (ps : ValidPageSize) : Uint63.int :=
+  match ps with
+  | Page4KB => 4096     (* 4KB *)
+  | Page2MB => 2097152  (* 2MB *)
+  end.
+
+(** Represents a page size constrained to valid sizes *)
 Record PageSize := mkPageSize {
-  size : Uint63.int;
-  size_positive : (0 <? size) = true
+  page_type : ValidPageSize;
+  size := page_size_to_bytes page_type;
 }.
 
 (** A physical frame with a specific page size *)
@@ -35,14 +47,18 @@ Record PhysFrameRange (S : PageSize) := mkPhysFrameRange {
   range_valid : ((start_address S start_frame) <? (start_address S end_frame)) = true
 }.
 
-Lemma size_nonzero {S : PageSize} : 0 <> size S.
+Lemma size_nonzero {S : PageSize} : 0%uint63 <> (size S)%uint63.
 Proof.
   intro H.
-  pose proof (size_positive S) as G.
-  rewrite <- H in G.
-  assert (H1: (0 <? 0) = false) by reflexivity.
-  rewrite H1 in G.
-  discriminate G.
+  unfold size in H.
+  destruct (page_type S) as [|].
+  - simpl in H.
+    apply (Uint63.eqb_false_spec 0 4096).
+    reflexivity. exact H.
+  - simpl in H.
+    apply (Uint63.eqb_false_spec 0 2097152).
+    reflexivity.
+    exact H.
 Qed.
 
 Definition ltb_phys_addr (a b : PhysAddr) : bool :=
