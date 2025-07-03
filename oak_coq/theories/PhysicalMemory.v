@@ -62,10 +62,10 @@ Proof.
 Qed.
 
 Definition ltb_phys_addr (a b : PhysAddr) : bool :=
-  Uint63.ltb a b.
+  ltb a b.
 
 Definition leb_phys_addr (a b : PhysAddr) : bool :=
-  Uint63.leb a b.
+  leb a b.
 
 Definition eqb_phys_addr (a b : PhysAddr) : bool :=
-  Uint63.eqb a b.
+  eqb a b.
