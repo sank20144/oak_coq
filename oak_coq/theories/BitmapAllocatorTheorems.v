@@ -7,7 +7,6 @@ From OC Require Import PhysicalMemory.
 From OC Require Import BitArr.
 From OC Require Import BitmapAllocatorCore.
 From OC Require Import BitArrLemmas.
-From OC Require Import BitmapAllocatorLemmas.
 
 (** * Theorems and Properties *)
 
