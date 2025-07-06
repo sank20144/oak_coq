@@ -22,7 +22,7 @@ Record BitmapAllocator (S : PageSize) (N : nat) := mkBitmapAllocator {
 (** An allocator is well-formed if allocated frames are always valid *)
 Definition allocator_wf {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) : Prop :=
   forall idx : nat, 
-    idx < n -> 
+    idx < n * u64_bits -> 
     get_bit (allocated S n alloc) idx = true -> 
     get_bit (valid S n alloc) idx = true.
 
