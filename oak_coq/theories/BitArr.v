@@ -89,9 +89,10 @@ Fixpoint bits_to_z_helper (bits : list bool) (pos : nat) (acc : Z) : Z :=
   end.
 
 (** Create BitArray from list bool - note: list length should be multiple of 64 *)
-Definition bitarray_from_list (bits : list bool) : BitArray (Nat.div (length bits) u64_bits) :=
+Definition bitarray_from_list (bits : list bool) : option (BitArray (Nat.div (length bits) u64_bits)) :=  if Nat.modulo (length bits) u64_bits =? 0 then
   let n := Nat.div (length bits) u64_bits in
-  Z_to_bv (N.of_nat (n * u64_bits)) (bits_to_z_helper bits 0 0).
+    Some (Z_to_bv (N.of_nat (n * u64_bits)) (bits_to_z_helper bits 0 0))
+  else None.
 
 (** Convert BitArray to list bool *)
 Fixpoint z_to_bits_helper (fuel : nat) (total_bits : nat) (i : nat) (z : Z) (acc : list bool) : list bool :=
