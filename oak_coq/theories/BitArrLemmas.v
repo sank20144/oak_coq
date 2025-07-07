@@ -296,7 +296,29 @@ Lemma first_one_returns_true :
     first_one_from_zero bits = Some idx -> 
     get_bit bits idx = true.
 Proof.
-Admitted.
+  intros n bits idx H.
+  unfold first_one_from_zero, first_one in H.
+  assert (Helper: forall start_idx fuel idx',
+             first_one_fuel bits start_idx fuel = Some idx' ->
+             get_bit bits idx' = true).
+  {
+    intros start_idx fuel idx' H'.
+    revert start_idx idx' H'.
+    induction fuel as [|fuel']; intros start_idx idx' H'.
+    - simpl in H'. discriminate.
+    - simpl in H'.
+      destruct (start_idx <? n * u64_bits) eqn:Hlt; [|discriminate].
+      destruct (Z.testbit (bv_unsigned bits) (Z.of_nat start_idx)) eqn:Hbit.
+      + injection H' as ->. 
+        unfold get_bit.
+        rewrite Hlt, Hbit. 
+        reflexivity.
+      + apply IHfuel' with (start_idx := S start_idx). exact H'.
+  }
+  apply Helper with (start_idx := 0) (fuel := n * u64_bits).
+  rewrite Nat.sub_0_r in H.
+  exact H.
+Qed.
 
 Search Z.testbit "shiftl".
 (** Setting a bit different from current preserves other bits *)
