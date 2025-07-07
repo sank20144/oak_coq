@@ -4,9 +4,11 @@ Require Import Coq.Lists.List.
 Require Import Lia.
 Require Import Coq.ZArith.Zbool.
 Import ListNotations.
+Require ZArith.
 
 From stdpp Require Import bitvector.
 From OC Require Import BitArr.
+Require Import Coq.Numbers.Cyclic.Int63.Uint63.
 
 (** * Helper Lemmas *)
 
@@ -73,7 +75,11 @@ Proof.
       * unfold bv_modulus.
         assert (H_bits_bound: (bv_unsigned bits < 2 ^ Z.of_nat (n * u64_bits))%Z).
         {
-          admit.
+          pose proof (bv_unsigned_in_range (N.of_nat (n * u64_bits)) bits) as Hr.
+          unfold bv_modulus in Hr.
+          simpl in Hr.
+          rewrite Z_of_N_of_nat in Hr.
+          exact (proj2 Hr).
         }
         assert (H_shift_bound: (1 ≪ Z.of_nat idx < 2 ^ Z.of_nat (n * u64_bits))%Z).
         {
@@ -84,18 +90,72 @@ Proof.
           - bv_solve. 
           
         }
-        assert (H_lor_bound: (Z.lor (bv_unsigned bits) (1 ≪ Z.of_nat idx) < 2 ^ Z.of_nat (n * u64_bits))%Z).
+         assert (H_lor_bound: (Z.lor (bv_unsigned bits) (1 ≪ Z.of_nat idx) < 2 ^ Z.of_nat (n * u64_bits))%Z).
         {
-          apply Z.lt_le_trans with (Z.max (bv_unsigned bits) (1 ≪ Z.of_nat idx)).
-          admit.
-          admit.
+          apply Z.bounded_iff_bits_nonneg.
+          - lia.
+          - apply Z.lor_nonneg.
+            + split.
+              * apply bv_unsigned_in_range.
+              * apply Z.shiftl_nonneg. lia.
+          - intros l Hl.
+            rewrite Z.lor_spec.
+            assert (H_bits_zero: Z.testbit (bv_unsigned bits) l = false).
+            {
+              apply bv_unsigned_spec_high.
+              rewrite Z_of_N_of_nat.
+              exact Hl.
+            }
+            assert (H_shift_zero: Z.testbit (1 ≪ Z.of_nat idx) l = false).
+            {
+              rewrite Z.shiftl_spec; [|lia].
+              destruct (Z.eqb l (Z.of_nat idx)) eqn:Heq.
+              - apply Z.eqb_eq in Heq. subst l.
+                exfalso.
+                apply Nat2Z.inj_lt in H_bound.
+                lia.
+              - assert (l - Z.of_nat idx ≠ 0)%Z.
+                {
+                  apply Z.eqb_neq in Heq.
+                  intro Hcontra.
+                  assert (l = Z.of_nat idx)%Z by lia.
+                  contradiction.
+                }
+                destruct (Z.testbit 1 (l - Z.of_nat idx)) eqn:Hbit.
+                --  exfalso.
+                    assert (l - Z.of_nat idx = 0)%Z.
+                    {
+                      destruct (l - Z.of_nat idx)%Z eqn:Hd; try reflexivity.
+                      - simpl in Hbit; discriminate.
+                      - simpl in Hbit; discriminate.
+                    }
+                    contradiction.
+                --  reflexivity.
+            }
+            rewrite H_bits_zero, H_shift_zero.
+            reflexivity.
         }
         replace (Z.of_N (N.of_nat (n * u64_bits))) with (Z.of_nat (n * u64_bits)).
         -- exact H_lor_bound.
         -- bv_solve.
     
-  - bv_simplify. admit.
-Admitted.
+  - bv_simplify. 
+    rewrite bv_wrap_spec_low.
+    -- rewrite Z.land_spec, Z.lnot_spec by lia.
+      rewrite Z.shiftl_spec by lia.
+      replace (Z.sub (Z.of_nat idx) (Z.of_nat idx)) with 0%Z by lia.
+      simpl Z.testbit.
+      rewrite andb_false_r.
+      reflexivity.
+    -- split.
+      + lia.
+      + apply Nat2Z.inj_lt in H_bound.
+        rewrite Z_of_N_of_nat.
+        exact H_bound.
+Qed.
+
+Search Z"lor".
+Search "lor" bv.
 
 Lemma get_bit_set_bit_different : 
   forall {n : nat} (bits : BitArray n) idx idx' value,
