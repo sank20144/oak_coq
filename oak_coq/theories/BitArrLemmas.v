@@ -4,11 +4,10 @@ Require Import Coq.Lists.List.
 Require Import Lia.
 Require Import Coq.ZArith.Zbool.
 Import ListNotations.
-Require ZArith.
 
 From stdpp Require Import bitvector.
 From OC Require Import BitArr.
-Require Import Coq.Numbers.Cyclic.Int63.Uint63.
+
 
 (** * Helper Lemmas *)
 
