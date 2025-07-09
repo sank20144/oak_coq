@@ -65,6 +65,26 @@ Theorem deallocate_frame_preserves_wf: forall (S : PageSize) (n : nat)
   | Some alloc' => allocator_wf alloc'
   | None => True
   end.
+Proof.
+  intros S n alloc frame Hwf.
+  unfold deallocate_frame.
+  destruct (frame_to_idx alloc frame) as [idx|] eqn:Hidx.
+  - destruct (get_bit (valid S n alloc) idx && get_bit (allocated S n alloc) idx) eqn:Hbits.
+    + simpl. unfold allocator_wf.
+      intros idx' Hbound Halloc'.
+      destruct (Nat.eq_dec idx' idx) as [Heq|Hneq].
+      * subst idx'.
+        apply andb_prop in Hbits as [Hvalid _]. simpl in *.
+        exact Hvalid.
+      * assert (Hgetbit: get_bit (set_bit (allocated S n alloc) idx false) idx' = get_bit (allocated S n alloc) idx').
+        { apply get_bit_set_bit_different; auto. }
+        simpl in *.
+        apply Hwf; auto.
+        rewrite <- Hgetbit. 
+        assumption.
+    + trivial.
+  - trivial.
+Qed.
 
 (** Allocation fails when no frames are available *)
 Theorem allocate_frame_failure {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) :
