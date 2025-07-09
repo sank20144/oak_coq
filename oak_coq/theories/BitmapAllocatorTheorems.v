@@ -48,20 +48,7 @@ Proof.
                                 get_bit (allocated S n alloc) idx').
            {
              apply get_bit_set_bit_different.
-             -  assert (H_u64_pos: 0 < u64_bits) by (unfold u64_bits; lia).
-                assert (H_le: idx' <= idx' * u64_bits).
-                {
-                  rewrite <- Nat.mul_1_r at 1.
-                  apply Nat.mul_le_mono_l.
-                  unfold u64_bits. lia.
-                }
-                assert (H_lt_expanded: idx' * u64_bits < n * u64_bits).
-                {
-                  apply Nat.mul_lt_mono_pos_r; [exact H_u64_pos | exact H_bound].
-                }
-                apply Nat.le_lt_trans with (idx' * u64_bits).
-                + exact H_le.
-                + exact H_lt_expanded.
+             - exact H_bound.
              - symmetry. exact Hneq.
            }
            rewrite <- H_different.
