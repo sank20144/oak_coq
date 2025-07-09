@@ -296,27 +296,25 @@ Lemma first_one_returns_true :
     get_bit bits idx = true.
 Proof.
   intros n bits idx H.
-  unfold first_one_from_zero, first_one in H.
-  assert (Helper: forall start_idx fuel idx',
-             first_one_fuel bits start_idx fuel = Some idx' ->
-             get_bit bits idx' = true).
-  {
-    intros start_idx fuel idx' H'.
-    revert start_idx idx' H'.
-    induction fuel as [|fuel']; intros start_idx idx' H'.
-    - simpl in H'. discriminate.
-    - simpl in H'.
-      destruct (start_idx <? n * u64_bits) eqn:Hlt; [|discriminate].
-      destruct (Z.testbit (bv_unsigned bits) (Z.of_nat start_idx)) eqn:Hbit.
-      + injection H' as ->. 
-        unfold get_bit.
-        rewrite Hlt, Hbit. 
-        reflexivity.
-      + apply IHfuel' with (start_idx := S start_idx). exact H'.
-  }
-  apply Helper with (start_idx := 0) (fuel := n * u64_bits).
-  rewrite Nat.sub_0_r in H.
-  exact H.
+  remember (n * u64_bits) as total_bits.
+  unfold first_one_from_zero in H.
+  unfold get_bit.
+  destruct (idx <? total_bits) eqn:Hlt.
+  - apply Nat.ltb_lt in Hlt.
+    apply find_some in H as [Hin Htest].
+    rewrite Htest.
+    rewrite Heqtotal_bits in Hlt.
+    assert (Hltc: idx <? n * u64_bits = true).
+    { apply Nat.ltb_lt. exact Hlt. }
+    rewrite Hltc.
+    reflexivity.
+  - apply find_some in H as [Hin Htest].
+    exfalso.
+    apply in_seq in Hin.
+    rewrite Heqtotal_bits in Hlt.
+    apply Nat.ltb_ge in Hlt.
+    destruct Hin as [H0 H1].
+    lia.
 Qed.
 
 Search Z.testbit "shiftl".
@@ -327,10 +325,14 @@ Lemma get_bit_set_bit_diff :
     get_bit (set_bit bits idx1 value) idx2 = get_bit bits idx2.
 Proof.
   intros n bits idx1 idx2 value H_neq.
-  unfold get_bit, set_bit.
-  
-  admit.
-Admitted.
+  destruct (idx2 <? n * u64_bits) eqn:Hidx2.
+  - apply Nat.ltb_lt in Hidx2.
+    apply get_bit_set_bit_different; auto.
+  - apply Nat.ltb_ge in Hidx2.
+    rewrite get_bit_bounds; [|exact Hidx2].
+    rewrite get_bit_bounds; [|exact Hidx2].
+    reflexivity.
+Qed.
 
 (** Negation inverts each bit *)
 Lemma bitnot_get_bit : 
@@ -341,8 +343,17 @@ Proof.
   intros n bits idx H_bound.
   unfold bitnot, get_bit.
   
-  admit.
-Admitted.
+  assert (H_idx_lt: idx <? n * u64_bits = true) by (apply Nat.ltb_lt; exact H_bound).
+  rewrite H_idx_lt.
+  
+  rewrite bv_not_unsigned.
+  
+  rewrite bv_wrap_spec_low.
+  - rewrite Z.lnot_spec.
+    + reflexivity.
+    + lia.
+  - bv_solve.
+Qed.
 
 (** Bitwise AND operates pointwise *)
 Lemma bitand_get_bit : 
@@ -352,9 +363,21 @@ Proof.
   intros n a b idx.
   unfold bitand, get_bit.
   
-  admit.
-Admitted.
+  destruct (idx <? n * u64_bits) eqn:H_bound.
+  - rewrite bv_and_unsigned.
+    rewrite Z.land_spec.
+    reflexivity.
+    
+  - reflexivity.
+Qed.
 
+(** If count is 0, all bits are false *)
+Lemma count_ones_zero_all_false : 
+  forall {n : nat} (bits : BitArray n),
+    count_ones bits = 0 -> forall idx, get_bit bits idx = false.
+Proof.
+  
+Admitted.
 (** Setting a bit to true increases the count of ones exactly by 1 *)
 Lemma set_bit_false_to_true_increases_count : 
   forall {n : nat} (bits : BitArray n) (idx : nat),
@@ -363,17 +386,7 @@ Lemma set_bit_false_to_true_increases_count :
     count_ones (set_bit bits idx true) = count_ones bits + 1.
 Proof.
   intros n bits idx H_bound H_false.
-  unfold count_ones, set_bit, get_bit in *.
-  
-Admitted.
-
-(** If count is 0, all bits are false *)
-Lemma count_ones_zero_all_false : 
-  forall {n : nat} (bits : BitArray n),
-    count_ones bits = 0 -> forall idx, get_bit bits idx = false.
-Proof.
-  intros n bits H_zero idx.
-  unfold count_ones, get_bit in *.
+  unfold count_ones.
   
 Admitted.
 
