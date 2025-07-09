@@ -371,13 +371,74 @@ Proof.
   - reflexivity.
 Qed.
 
+Lemma count_ones_helper_monotonic :
+  forall {n : nat} (bits : BitArray n) start remaining acc,
+    count_ones_helper bits start remaining acc >= acc.
+Proof.
+  intros n bits start remaining acc.
+  revert start acc.
+  induction remaining as [|remaining' IH]; intros start acc.
+  - simpl. lia.
+  - simpl.
+    destruct (Z.testbit (bv_unsigned bits) (Z.of_nat start)).
+    + specialize (IH (S start) (S acc)).
+      lia.
+    + specialize (IH (S start) acc).
+      exact IH.
+Qed.
+
+Lemma count_ones_helper_zero_implies_all_false :
+  forall {n : nat} (bits : BitArray n) start remaining acc,
+    count_ones_helper bits start remaining acc = acc ->
+    forall i, start <= i < start + remaining ->
+    Z.testbit (bv_unsigned bits) (Z.of_nat i) = false.
+Proof.
+  intros n bits.
+  intros start remaining.
+  revert start.
+  induction remaining as [|remaining' IH]; intros start acc Heq i Hrange.
+  - simpl in Hrange. lia.
+  - simpl in Heq.
+    destruct (Nat.eq_dec i start) as [Hi_eq | Hi_neq].
+    + subst i.
+      destruct (Z.testbit (bv_unsigned bits) (Z.of_nat start)) eqn:Hbit.
+      * exfalso.
+        assert (Hgt: count_ones_helper bits (S start) remaining' (S acc) >= S acc).
+        { apply count_ones_helper_monotonic. }
+        lia.
+      * reflexivity. 
+        
+    + assert (Hi_gt: start < i) by lia.
+      assert (Hi_range': S start <= i < S start + remaining') by lia.
+      
+      destruct (Z.testbit (bv_unsigned bits) (Z.of_nat start)) eqn:Hstart.
+      * exfalso.
+        assert (Hgt: count_ones_helper bits (S start) remaining' (S acc) >= S acc).
+        { apply count_ones_helper_monotonic. }
+        lia.
+      * apply (IH (S start) acc).
+        -- exact Heq.
+        -- exact Hi_range'.
+Qed.
+
 (** If count is 0, all bits are false *)
 Lemma count_ones_zero_all_false : 
   forall {n : nat} (bits : BitArray n),
     count_ones bits = 0 -> forall idx, get_bit bits idx = false.
 Proof.
-  
-Admitted.
+  intros n bits Hcount idx.
+  unfold get_bit.
+  destruct (idx <? n * u64_bits) eqn:Hlt.
+  - apply Nat.ltb_lt in Hlt.
+    unfold count_ones in Hcount.
+    
+    apply count_ones_helper_zero_implies_all_false with (start := 0) (remaining := n * u64_bits) (acc := 0).
+    + exact Hcount.
+    + lia.
+    
+  - reflexivity.
+Qed.
+
 (** Setting a bit to true increases the count of ones exactly by 1 *)
 Lemma set_bit_false_to_true_increases_count : 
   forall {n : nat} (bits : BitArray n) (idx : nat),
