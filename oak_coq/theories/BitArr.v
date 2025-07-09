@@ -40,41 +40,22 @@ Definition bitnot {n : nat} (a : BitArray n) : BitArray n :=
   bv_not a.
 
 (** Find index of first 1 bit *)
-Fixpoint first_one_fuel {n : nat} (bits : BitArray n) (start_idx : nat) (fuel : nat) : option nat :=
-  match fuel with
-  | 0 => None
-  | S fuel' =>
-    let total_bits := n * u64_bits in
-    if start_idx <? total_bits then
-      if Z.testbit (bv_unsigned bits) (Z.of_nat start_idx) then
-        Some start_idx
-      else
-        first_one_fuel bits (S start_idx) fuel'
-    else None
-  end.
-
-Definition first_one {n : nat} (bits : BitArray n) (start_idx : nat) : option nat :=
-  let total_bits := n * u64_bits in
-  first_one_fuel bits start_idx (total_bits - start_idx).
-
 Definition first_one_from_zero {n : nat} (bits : BitArray n) : option nat :=
-  first_one bits 0.
+  let total_bits := n * u64_bits in
+  find (fun i => Z.testbit (bv_unsigned bits) (Z.of_nat i)) (seq 0 total_bits).
 
 (** Count number of ones in a bitmap *)
-Fixpoint count_ones_helper {n : nat} (bits : BitArray n) (fuel : nat) (i : nat) (acc : nat) : nat :=
-  match fuel with
+Fixpoint count_ones_helper {n : nat} (bits : BitArray n) (i : nat) (remaining : nat) (acc : nat) : nat :=
+  match remaining with
   | 0 => acc
-  | S fuel' =>
-    let total_bits := n * u64_bits in
-    if i <? total_bits then
-      let new_acc := if Z.testbit (bv_unsigned bits) (Z.of_nat i) then S acc else acc in
-      count_ones_helper bits fuel' (S i) new_acc
-    else acc
+  | S remaining' =>
+    let new_acc := if Z.testbit (bv_unsigned bits) (Z.of_nat i) then S acc else acc in
+    count_ones_helper bits (S i) remaining' new_acc
   end.
 
 Definition count_ones {n : nat} (bits : BitArray n) : nat :=
   let total_bits := n * u64_bits in
-  count_ones_helper bits total_bits 0 0.
+  count_ones_helper bits 0 total_bits 0.
 
 (** Create zero-initialized BitArray *)
 Definition make_bitarray (n : nat) : BitArray n :=
@@ -115,3 +96,6 @@ Definition bitarray_capacity (n : nat) : nat := n * u64_bits.
 Compute (bitarray_capacity 4096). (* Should be 262144 bits *)
 Compute (make_bitarray 4096).
 Compute set_bit (make_bitarray 10) 65 true. (* Setting bit 65 (second u64, second bit) *)
+Compute count_ones (set_bit (set_bit (make_bitarray 10) 65 true) 66 true). (* Should be 2 *)
+Compute first_one_from_zero (set_bit (set_bit (make_bitarray 10) 62 true) 66 true).
+Compute first_one_from_zero (make_bitarray 10). (* Should be None *)
