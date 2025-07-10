@@ -43,7 +43,7 @@ Record PhysFrame (S : PageSize) := mkPhysFrame {
 Record PhysFrameRange (S : PageSize) := mkPhysFrameRange {
   start_frame : PhysFrame S;
   end_frame : PhysFrame S;
-  (* Ensure start <= end *)
+  (* Ensure start < end *)
   range_valid : ((start_address S start_frame) <? (start_address S end_frame)) = true
 }.
 
