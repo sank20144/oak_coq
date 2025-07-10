@@ -22,8 +22,8 @@ Inductive ValidPageSize : Set :=
 (** Convert valid page size to actual size in bytes *)
 Definition page_size_to_bytes (ps : ValidPageSize) : Uint63.int :=
   match ps with
-  | Page4KB => 4096     (* 4KB *)
-  | Page2MB => 2097152  (* 2MB *)
+  | Page4KB => 4096           (* 4KB *)
+  | Page2MB => 512 * 4096     (* 2MB *)
   end.
 
 (** Represents a page size constrained to valid sizes *)
