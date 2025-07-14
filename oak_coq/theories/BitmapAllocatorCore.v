@@ -28,7 +28,7 @@ Definition allocator_wf {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) :
 
 (** A frame index is within the allocator's range *)
 Definition frame_idx_valid {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (idx : nat) : Prop :=
-  idx < n.
+  idx < n * u64_bits.
 
 (** Convert frame to index within the allocator's range *)
 Definition frame_to_idx {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (frame : PhysFrame S) : option nat :=
@@ -38,7 +38,7 @@ Definition frame_to_idx {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (
   if (range_start <=? frame_addr) && (frame_addr <? range_end) then
     let offset := frame_addr - range_start in
     let idx := (offset / size S) in
-    if idx <? of_nat n then 
+    if idx <? of_nat (n * u64_bits) then 
       let ret := to_nat idx in
       Some ret 
     else None
@@ -46,42 +46,16 @@ Definition frame_to_idx {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (
 
 (** Convert index to frame within the allocator's range *)
 Program Definition idx_to_frame {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (idx : nat) : option (PhysFrame S) :=
-  if Nat.ltb idx (n * 64) then
+  if Nat.ltb idx (n * u64_bits) then
     let range_start := start_address S (start_frame S (range S n alloc)) in
     let frame_addr := range_start + (of_nat idx * size S) in
+    Some (mkPhysFrame S frame_addr _)
     
-    if (frame_addr <? start_address S (end_frame S (range S n alloc))) then
-      Some (mkPhysFrame S frame_addr _)
-    else None
   else None.
 Next Obligation.
 Admitted.
 
 (** * Core Operations *)
-
-(** Helper function to set bits in a range *)
-Definition set_bit_range {n : nat} (bits : BitArray n) (start_idx end_idx : nat) (value : bool) : BitArray n :=
-  (fix set_range (bits : BitArray n) (i : nat) (fuel : nat) : BitArray n :=
-    match fuel with
-    | 0 => bits
-    | S fuel' => 
-        if Nat.leb i end_idx then
-          set_range (set_bit bits i value) (Datatypes.S i) fuel'
-        else bits
-    end) bits start_idx (Datatypes.S (end_idx - start_idx)).
-
-(** Mark a range of frames as valid or invalid *)
-Definition mark_valid {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) 
-                      (frame_range : PhysFrameRange S) (is_valid : bool) : 
-                      option (BitmapAllocator S n) :=
-  match (frame_to_idx alloc (start_frame S frame_range), 
-         frame_to_idx alloc (end_frame S frame_range)) with
-  | (Some start_idx, Some end_idx) =>
-      let new_valid := set_bit_range (valid S n alloc) start_idx end_idx is_valid in
-      Some (mkBitmapAllocator S n (allocated S n alloc) new_valid 
-                              (range S n alloc))
-  | _ => None  (* Range is outside our bounds *)
-  end.
 
 (** Get available frames (valid AND not allocated) *)
 Definition get_available {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) : BitArray n :=
