@@ -46,10 +46,13 @@ Definition frame_to_idx {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (
 
 (** Convert index to frame within the allocator's range *)
 Program Definition idx_to_frame {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (idx : nat) : option (PhysFrame S) :=
-  if Nat.ltb idx n then
+  if Nat.ltb idx (n * 64) then
     let range_start := start_address S (start_frame S (range S n alloc)) in
     let frame_addr := range_start + (of_nat idx * size S) in
-    Some (mkPhysFrame S frame_addr _)
+    
+    if (frame_addr <? start_address S (end_frame S (range S n alloc))) then
+      Some (mkPhysFrame S frame_addr _)
+    else None
   else None.
 Next Obligation.
 Admitted.
