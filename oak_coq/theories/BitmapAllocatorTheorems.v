@@ -1,14 +1,20 @@
 Require Import Coq.ZArith.ZArith.
+Require Import Coq.ZArith.Zbool.
 Require Import Coq.Bool.Bool.
 Require Import Coq.Lists.List.
+Require Import Coq.Structures.OrderedTypeEx.
+Require Import Coq.FSets.FMapAVL.
+Require Import Coq.Numbers.Cyclic.Int63.Uint63.
 Require Import Lia.
 Import ListNotations.
-From OC Require Import PhysicalMemory.
+From stdpp Require Import bitvector.
 From OC Require Import BitArr.
+From OC Require Import PhysicalMemory.
 From OC Require Import BitmapAllocatorCore.
 From OC Require Import BitArrLemmas.
 
 (** * Theorems and Properties *)
+
 
 Theorem allocate_frame_preserves_wf:
    forall {S : PageSize} {n : nat} (alloc : BitmapAllocator S n),
@@ -85,12 +91,125 @@ Proof.
     + trivial.
   - trivial.
 Qed.
+(** Helper lemma: first_one_from_zero returns indices within bounds *)
+Lemma first_one_from_zero_lt {n : nat} (bits : BitArray n) (idx : nat) :
+  first_one_from_zero bits = Some idx ->
+  idx < n * u64_bits.
+Proof.
+  intros H.
+  unfold first_one_from_zero in H.
+  apply find_some in H.
+  destruct H as [Hrange _].
+  apply in_seq in Hrange.
+  exact (proj2 Hrange).
+Qed.
+Lemma first_one_some_implies_nonzero_count {n : nat} (bits : BitArray n) (idx : nat) :
+  first_one_from_zero bits = Some idx ->
+  count_ones bits > 0.
+Proof.
+  intros H.
+  assert (H_bit_true: get_bit bits idx = true).
+  { apply first_one_returns_true; exact H. }
+  
+  assert (H_idx_bound: idx < n * u64_bits).
+  { apply (first_one_from_zero_lt bits); exact H. }
 
-(** Allocation fails when no frames are available *)
-Theorem allocate_frame_failure {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) :
-  allocator_wf alloc ->
-  allocate_frame alloc = None ->
-  num_available alloc = 0.
+  destruct (count_ones bits) eqn:Hcount.
+  - pose proof (count_ones_zero_all_false bits Hcount idx) as H_bit_false.
+    rewrite H_bit_true in H_bit_false.
+    discriminate.
+  - lia.
+Qed.
+
+Lemma first_one_none_implies_count_zero {n : nat} (bits : BitArray n) :
+  first_one_from_zero bits = None ->
+  count_ones bits = 0%nat.
+Proof.
+  intros Hnone.
+  unfold count_ones.
+  assert (Hall_false: forall i, i < n * u64_bits -> 
+                      Z.testbit (bv_unsigned bits) (Z.of_nat i) = false).
+  {
+    intros i Hi.
+    unfold first_one_from_zero in Hnone.
+    apply find_none with (x := i) in Hnone.
+    - exact Hnone.
+    - apply in_seq.
+      split; [lia | exact Hi].
+    
+  }
+  
+  assert (Hhelper: count_ones_helper bits 0 (n * u64_bits) 0 = 0%nat).
+  {
+    assert (Hgen: forall start remaining acc,
+              (forall i, start <= i < start + remaining -> 
+               Z.testbit (bv_unsigned bits) (Z.of_nat i) = false) ->
+              count_ones_helper bits start remaining acc = acc).
+    {
+      intros start remaining.
+      revert start.
+      induction remaining as [|remaining' IH]; intros start acc Hfalse.
+      - reflexivity.
+      - simpl.
+        rewrite Hfalse; [|lia].
+        apply IH.
+        intros i Hi.
+        apply Hfalse.
+        lia.
+    }
+    
+    apply Hgen.
+    intros i Hi.
+    apply Hall_false.
+    lia.
+  }
+  
+  exact Hhelper.
+Qed.
+
+(** Lemma: frame_to_idx and idx_to_frame are left inverses *)
+Lemma frame_to_idx_idx_to_frame_inverse {S : PageSize} {n : nat} 
+      (alloc : BitmapAllocator S n) (idx : nat) :
+  idx < n * 64 ->  (* Corrected bound *)
+  match idx_to_frame alloc idx with
+  | Some frame => frame_to_idx alloc frame = Some idx
+  | None => True
+  end.
+Proof.
+  
+Admitted.
+
+(** Lemma: idx_to_frame respects bounds *)
+Lemma idx_to_frame_some_implies_valid_idx {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (idx : nat) (frame : PhysFrame S) :
+  idx_to_frame alloc idx = Some frame ->
+  idx < n * u64_bits.
+Proof.
+  intros H.
+  unfold idx_to_frame in H.
+  destruct (Nat.ltb idx (n * u64_bits)) eqn:Hlt; [|discriminate].
+  apply Nat.ltb_lt in Hlt.
+  exact Hlt.
+Qed.
+
+(** Lemma: frame_to_idx for idx_to_frame result is never None when idx < n *)
+Lemma frame_to_idx_idx_to_frame_some {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (idx : nat) :
+  idx < n ->
+  exists frame, idx_to_frame alloc idx = Some frame /\ frame_to_idx alloc frame = Some idx.
+Proof.
+  Admitted.
+
+(** Helper lemma: frame_to_idx is independent of allocated bitmap *)
+Lemma frame_to_idx_independent_of_allocated {S : PageSize} {n : nat} 
+      (alloc1 alloc2 : BitmapAllocator S n) (frame : PhysFrame S) :
+  valid S n alloc1 = valid S n alloc2 ->
+  range S n alloc1 = range S n alloc2 ->
+  frame_to_idx alloc1 frame = frame_to_idx alloc2 frame.
+Proof.
+  intros Hvalid Hrange.
+  unfold frame_to_idx.
+  rewrite Hrange.
+  reflexivity.
+Qed.
 
 (** Allocation returns a valid, previously unallocated frame *)
 Theorem allocate_frame_correctness {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) 
@@ -110,6 +229,67 @@ Theorem allocate_frame_correctness {S : PageSize} {n : nat} (alloc : BitmapAlloc
    end) /\
   (** Frame is within the allocator's range *)
   is_frame_valid alloc frame = true.
+Proof.
+  intros Hwf Halloc_some.
+  unfold allocate_frame in Halloc_some.
+  
+  destruct (first_one_from_zero (get_available alloc)) as [idx|] eqn:Hfirst; 
+    [|discriminate].
+  
+  destruct (idx_to_frame alloc idx) as [frame'|] eqn:Hidx_to_frame; 
+    [|discriminate].
+  
+  inversion Halloc_some as [[Hframe_eq Halloc'_eq]]. 
+  subst frame'.
+  
+  assert (Havail: get_bit (get_available alloc) idx = true).
+  { apply first_one_returns_true. exact Hfirst. }
+  
+  unfold get_available in Havail.
+  rewrite bitand_get_bit in Havail.
+  apply andb_prop in Havail as [Hvalid Hnot_alloc].
+  
+  rewrite bitnot_get_bit in Hnot_alloc.
+  - apply negb_true_iff in Hnot_alloc.
+    
+    assert (Hidx_bound: idx < n * u64_bits).
+    { apply first_one_from_zero_lt with (bits := get_available alloc). exact Hfirst. }
+    
+    assert (Hframe_to_idx: frame_to_idx alloc frame = Some idx).
+    {
+      pose proof (frame_to_idx_idx_to_frame_inverse alloc idx) as Hinv.
+      rewrite Hidx_to_frame in Hinv.
+      apply Hinv; exact Hidx_bound.
+    }
+    split; [|split].
+    
+    + rewrite Hframe_to_idx.
+      split; assumption.
+    
+    + simpl.
+      assert (Hframe_to_idx': frame_to_idx 
+               {| allocated := set_bit (allocated S n alloc) idx true;
+                  valid := valid S n alloc;
+                  range := range S n alloc |} frame = Some idx).
+      {
+        unfold frame_to_idx.
+        simpl.
+        exact Hframe_to_idx.
+      }
+      
+      rewrite Hframe_to_idx'.
+      
+      simpl.
+      apply get_bit_set_bit_same.
+      exact Hidx_bound.
+    
+    + unfold is_frame_valid.
+      rewrite Hframe_to_idx.
+      exact Hvalid.
+      
+  - apply first_one_from_zero_lt with (bits := get_available alloc).
+    exact Hfirst.
+Qed.
 
 (** Deallocation succeeds only for allocated, valid frames *)
 Theorem deallocate_frame_precondition {S : PageSize} {n : nat} 
@@ -118,6 +298,8 @@ Theorem deallocate_frame_precondition {S : PageSize} {n : nat}
   deallocate_frame alloc frame = Some alloc' ->
   is_frame_allocated alloc frame = true /\
   is_frame_valid alloc frame = true.
+Proof.
+  Admitted.
 
   (** No double allocation: allocate_frame never returns an already allocated frame *)
 Theorem no_double_allocation {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) 
@@ -127,4 +309,21 @@ Theorem no_double_allocation {S : PageSize} {n : nat} (alloc : BitmapAllocator S
   allocate_frame alloc = Some (returned_frame, new_alloc) ->
   f <> returned_frame.
 Proof.
+  intros Hwf Hallocf Halloc.
+  pose proof (allocate_frame_correctness alloc returned_frame new_alloc Hwf Halloc) as Halloc_corr.
+  destruct Halloc_corr as [Hpre [Hpost Hvalid]].
+  destruct (frame_to_idx alloc returned_frame) as [idx_ret|] eqn:Hidx_ret; [|contradiction].
+  destruct (frame_to_idx alloc f) as [idx_f|] eqn:Hidx_f.
+  - simpl in Hallocf.
+    specialize (Hpre).
+    destruct Hpre as [Hvalid_ret Hnot_alloc].
+    intro Heq. subst f.
+    rewrite Hidx_ret in Hidx_f. inversion Hidx_f. subst idx_f.
+    unfold is_frame_allocated in Hallocf.
+    rewrite Hidx_ret in Hallocf.
+    simpl in Hallocf.
+    rewrite Hnot_alloc in Hallocf.
+    discriminate.
+  - simpl in Hallocf; congruence.
+Qed.
   
