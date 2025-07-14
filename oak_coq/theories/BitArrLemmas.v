@@ -152,9 +152,6 @@ Proof.
         exact H_bound.
 Qed.
 
-Search Z"lor".
-Search "lor" bv.
-
 Lemma get_bit_set_bit_different : 
   forall {n : nat} (bits : BitArray n) idx idx' value,
     idx' < n * u64_bits ->
@@ -287,8 +284,6 @@ Proof.
     rewrite H_idx'_bound.
     reflexivity.
 Qed.
-
-Search "andb".
 
 Lemma first_one_returns_true : 
   forall {n : nat} (bits : BitArray n) idx,
@@ -439,6 +434,64 @@ Proof.
   - reflexivity.
 Qed.
 
+Lemma count_ones_helper_split :
+  forall {n : nat} (bits : BitArray n) start1 len1 len2 acc,
+    count_ones_helper bits start1 (len1 + len2) acc =
+    count_ones_helper bits (start1 + len1) len2 
+      (count_ones_helper bits start1 len1 acc).
+Proof.
+  intros n bits start1 len1.
+  revert start1.
+  induction len1 as [|len1' IH]; intros start1 len2 acc.
+  - simpl. replace (start1 + 0) with start1 by lia. reflexivity.
+  - simpl.
+    replace (start1 + S len1') with (S (start1 + len1')) by lia.
+    rewrite IH.
+    reflexivity.
+Qed.
+
+Lemma count_ones_helper_bit_determines_count :
+  forall {n : nat} (bits : BitArray n) start acc,
+    start < n * u64_bits ->
+    count_ones_helper bits start 1 acc = 
+    if Z.testbit (bv_unsigned bits) (Z.of_nat start) then S acc else acc.
+Proof.
+  intros n bits start acc H_bound.
+  simpl. reflexivity.
+Qed.
+
+Lemma count_ones_helper_extensional :
+  forall {n : nat} (bits1 bits2 : BitArray n) start remaining acc,
+    (forall i, start <= i < start + remaining -> 
+       Z.testbit (bv_unsigned bits1) (Z.of_nat i) = 
+       Z.testbit (bv_unsigned bits2) (Z.of_nat i)) ->
+    count_ones_helper bits1 start remaining acc = 
+    count_ones_helper bits2 start remaining acc.
+Proof.
+  intros n bits1 bits2 start remaining.
+  revert start.
+  induction remaining as [|remaining' IH]; intros start acc Hext.
+  - reflexivity.
+  - simpl.
+    rewrite (Hext start); [|lia].
+    destruct (Z.testbit (bv_unsigned bits2) (Z.of_nat start)); apply IH;
+    intros i Hi; apply Hext; lia.
+Qed.
+
+(* Splitting count_ones_helper at idx for set_bit from false to true *)
+Lemma count_ones_helper_set_bit_false_to_true_split :
+  forall {n : nat} (bits : BitArray n) (idx : nat) acc,
+    idx < n * u64_bits ->
+    get_bit bits idx = false ->
+    count_ones_helper (set_bit bits idx true) 0 (n * u64_bits) acc =
+      count_ones_helper bits 0 (n * u64_bits) acc + 1.
+Proof.
+  intros.
+  
+  
+  Admitted.
+
+
 (** Setting a bit to true increases the count of ones exactly by 1 *)
 Lemma set_bit_false_to_true_increases_count : 
   forall {n : nat} (bits : BitArray n) (idx : nat),
@@ -446,10 +499,11 @@ Lemma set_bit_false_to_true_increases_count :
     get_bit bits idx = false ->
     count_ones (set_bit bits idx true) = count_ones bits + 1.
 Proof.
-  intros n bits idx H_bound H_false.
+  intros n bits idx Hbound Hfalse.
   unfold count_ones.
-  
-Admitted.
+  rewrite count_ones_helper_set_bit_false_to_true_split with (idx := idx) (acc := 0) by auto.
+  now rewrite Nat.add_1_r.
+Qed.
 
 (** Setting a bit to false decreases the count of ones exactly by 1 *)
 Lemma set_bit_true_to_false_decreases_count : 
