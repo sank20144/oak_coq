@@ -15,6 +15,55 @@ From OC Require Import BitArrLemmas.
 
 (** * Theorems and Properties *)
 
+Local Open Scope Z_scope.
+
+Lemma add_no_overflow a b :
+  0 <= to_Z a ->
+  0 <= to_Z b ->
+  to_Z a + to_Z b < wB ->
+  to_Z (a + b) = to_Z a + to_Z b.
+Proof.
+  intros Ha Hb Hsum.
+  rewrite add_spec.
+  rewrite Zmod_small; auto.
+  split; [lia | exact Hsum].
+Qed.
+
+Lemma sub_no_underflow a b :
+  to_Z b <= to_Z a ->
+  to_Z (a - b) = to_Z a - to_Z b.
+Proof.
+  intros H.
+  rewrite sub_spec.
+  rewrite Zmod_small; auto.
+  pose proof (to_Z_bounded a).
+  pose proof (to_Z_bounded b).
+  split; lia.
+Qed.
+
+Lemma mul_no_overflow a b :
+  0 <= to_Z a ->
+  0 <= to_Z b ->
+  to_Z a * to_Z b < wB ->
+  to_Z (a * b) = to_Z a * to_Z b.
+Proof.
+  intros Ha Hb Hprod.
+  rewrite mul_spec.
+  rewrite Zmod_small; auto.
+  split; [apply Z.mul_nonneg_nonneg; auto | exact Hprod].
+Qed.
+
+Lemma div_exact a b :
+  to_Z b <> 0 ->
+  to_Z a = to_Z b * Z.of_nat (Z.to_nat (to_Z a / to_Z b)) ->
+  to_Z (a / b) = to_Z a / to_Z b.
+Proof.
+  intros Hb Hexact.
+  rewrite div_spec.
+  reflexivity.
+Qed.
+
+Local Close Scope Z_scope.
 
 Theorem allocate_frame_preserves_wf:
    forall {S : PageSize} {n : nat} (alloc : BitmapAllocator S n),
@@ -170,13 +219,98 @@ Qed.
 (** Lemma: frame_to_idx and idx_to_frame are left inverses *)
 Lemma frame_to_idx_idx_to_frame_inverse {S : PageSize} {n : nat} 
       (alloc : BitmapAllocator S n) (idx : nat) :
-  idx < n * 64 ->  (* Corrected bound *)
+  idx < n * u64_bits -> 
   match idx_to_frame alloc idx with
   | Some frame => frame_to_idx alloc frame = Some idx
   | None => True
   end.
 Proof.
+  intros H_bound.
+  unfold idx_to_frame.
+  assert (H_ltb: (idx <? n * u64_bits) = true) by (apply Nat.ltb_lt; exact H_bound).
+  rewrite H_ltb.
   
+  unfold frame_to_idx.
+  simpl.
+  
+  set (range_start := start_address S (start_frame S (range S n alloc))).
+  set (range_end := start_address S (end_frame S (range S n alloc))).
+  set (frame_addr := Uint63.add range_start (of_nat idx * size S)).
+  
+  assert (H_range: (Uint63.leb range_start frame_addr) && (Uint63.ltb frame_addr range_end) = true).
+  {
+    apply andb_true_intro.
+    split.
+    - apply Uint63.leb_spec.
+      unfold frame_addr.
+      rewrite Uint63.add_spec.
+      rewrite Uint63.mul_spec.
+      
+      admit.
+      
+    - apply Uint63.ltb_spec.
+      unfold frame_addr.
+      admit.
+  }
+  rewrite H_range.
+  
+  set (offset := Uint63.sub frame_addr range_start).
+  
+  assert (H_offset: offset = (of_nat idx * size S)%uint63).
+  {
+    unfold offset, frame_addr.
+    assert (H_no_overflow: Z.eqb (to_Z (range_start + of_nat idx * size S)) 
+                           (to_Z range_start + to_Z (of_nat idx * size S))).
+    {
+      admit.
+    }
+    
+    assert (H_sub: to_Z offset = to_Z (of_nat idx * size S)).
+    {
+      
+        admit.
+    }
+    
+    apply to_Z_inj.
+    exact H_sub.
+  }
+  
+  assert (H_div: Uint63.div offset (size S) = of_nat idx).
+  {
+    rewrite H_offset.
+    assert (H_div_spec: to_Z (offset / size S) = to_Z (of_nat idx)).
+    {
+      rewrite H_offset.
+      rewrite div_spec.
+      rewrite mul_spec.
+      
+      assert (H_idx_small: Z.ltb (Z.mul (to_Z (of_nat idx)) (to_Z (size S))) wB).
+      {
+        admit.
+      }
+      
+      admit.
+    }
+    
+    simpl.
+    admit.
+  }
+  
+  rewrite H_div.
+  
+  assert (H_final_bound: Uint63.ltb (of_nat idx) (of_nat (n * u64_bits)) = true).
+  {
+    admit.
+  }
+  
+  rewrite H_final_bound.
+  
+  assert (H_to_of_nat: to_nat (of_nat idx) = idx).
+  {
+    admit. 
+  }
+  rewrite H_to_of_nat.
+  reflexivity.
 Admitted.
 
 (** Lemma: idx_to_frame respects bounds *)
@@ -190,13 +324,6 @@ Proof.
   apply Nat.ltb_lt in Hlt.
   exact Hlt.
 Qed.
-
-(** Lemma: frame_to_idx for idx_to_frame result is never None when idx < n *)
-Lemma frame_to_idx_idx_to_frame_some {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (idx : nat) :
-  idx < n ->
-  exists frame, idx_to_frame alloc idx = Some frame /\ frame_to_idx alloc frame = Some idx.
-Proof.
-  Admitted.
 
 (** Helper lemma: frame_to_idx is independent of allocated bitmap *)
 Lemma frame_to_idx_independent_of_allocated {S : PageSize} {n : nat} 
