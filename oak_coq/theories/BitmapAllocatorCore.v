@@ -17,18 +17,18 @@ Record BitmapAllocator (S : PageSize) (N : nat) := mkBitmapAllocator {
   range : PhysFrameRange S;
 }.
 
+(** A frame index is within the allocator's range *)
+Definition frame_idx_valid {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (idx : nat) : Prop :=
+  idx < n * u64_bits.
+
 (** * Well-formedness Predicate *)
 
 (** An allocator is well-formed if allocated frames are always valid *)
 Definition allocator_wf {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) : Prop :=
   forall idx : nat, 
-    idx < n * u64_bits -> 
+    idx < n * u64_bits-> 
     get_bit (allocated S n alloc) idx = true -> 
     get_bit (valid S n alloc) idx = true.
-
-(** A frame index is within the allocator's range *)
-Definition frame_idx_valid {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (idx : nat) : Prop :=
-  idx < n * u64_bits.
 
 (** Convert frame to index within the allocator's range *)
 Definition frame_to_idx {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (frame : PhysFrame S) : option nat :=
