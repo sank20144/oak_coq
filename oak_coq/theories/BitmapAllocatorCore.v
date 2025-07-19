@@ -44,6 +44,17 @@ Definition frame_to_idx {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (
     else None
   else None.
 
+Lemma add_mod : forall a b c : int, (a + b) mod c = ((a mod c) + (b mod c)) mod c.
+Proof.
+  intros a b c.
+  apply to_Z_inj.
+  
+  repeat rewrite mod_spec.
+  repeat rewrite add_spec.
+  symmetry.
+  (* This is basically Z.add_mod but idk how to prove from here*)
+  Admitted.
+
 (** Convert index to frame within the allocator's range *)
 Program Definition idx_to_frame {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (idx : nat) : option (PhysFrame S) :=
   if Nat.ltb idx (n * u64_bits) then
@@ -53,8 +64,35 @@ Program Definition idx_to_frame {S : PageSize} {n : nat} (alloc : BitmapAllocato
     
   else None.
 Next Obligation.
+  intros.
+  unfold frame_addr.
+  
+  assert (Hstart_aligned: range_start mod size S = 0).
+  {
+    unfold range_start.
+    pose proof (frame_aligned S (start_frame S (range S n alloc))).
+    exact H.
+  } 
+  
+  rewrite add_mod.
+  rewrite Hstart_aligned.
+
+  assert (HidxMod: (of_nat idx * size S) mod size S = 0).
+  {
+    apply to_Z_inj.
+    rewrite mod_spec.
+    rewrite mul_spec.
+    (* apply Z.mod_mul. *)
+    admit.
+  }
+  rewrite HidxMod.
+  simpl.
+  apply to_Z_inj.
+  rewrite mod_spec.
+  apply Zmod_0_l. 
 Admitted.
 
+Search (Z.modulo 0 _).
 (** * Core Operations *)
 
 (** Get available frames (valid AND not allocated) *)
