@@ -39,14 +39,13 @@ Definition frame_to_idx {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (
   if (range_start <=? frame_addr) && (frame_addr <? range_end) then
     let offset := frame_addr - range_start in
     let idx := (offset / size S) in
-    if idx <? of_nat (n * u64_bits) then 
-      let ret := to_nat idx in
-      Some ret 
-    else None
+    let ret := to_nat idx in
+    Some ret 
   else None.
 
 Search "mod_0_r".
 Compute wB.
+Compute of_Z wB mod (size (mkPageSize Page4KB)) .
 
 Lemma add_mod : forall a b c : int, (a + b) mod c = ((a mod c) + (b mod c)) mod c.
 Proof.
@@ -70,42 +69,44 @@ Admitted.
 
 (** Convert index to frame within the allocator's range *)
 Program Definition idx_to_frame {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (idx : nat) : option (PhysFrame S) :=
-  if Nat.ltb idx (n * u64_bits) then
-    let range_start := start_address S (start_frame S (range S n alloc)) in
-    let frame_addr := range_start + (of_nat idx * size S) in
-    Some (mkPhysFrame S frame_addr _)
-    
-  else None.
+  let frame_idx_u64 := of_nat idx in
+  let frame_addr := start_address S (start_frame S (range S n alloc)) + (frame_idx_u64 * size S) in
+  let range_end := start_address S (end_frame S (range S n alloc)) in
+  if frame_addr <? range_end then
+    let candidate_frame := mkPhysFrame S frame_addr _ in
+    Some candidate_frame
+  else 
+    None.
 Next Obligation.
   intros.
-  unfold frame_addr.
+  set (start_addr := start_address S (start_frame S (range S n alloc))).
   
-  assert (Hstart_aligned: range_start mod size S = 0).
-  {
-    unfold range_start.
-    pose proof (frame_aligned S (start_frame S (range S n alloc))).
-    exact H.
-  } 
+  destruct (start_frame S (range S n alloc)) as [start_addr' align_proof].
+  simpl in start_addr.
   
-  rewrite add_mod.
-  rewrite Hstart_aligned.
-
-  assert (HidxMod: (of_nat idx * size S) mod size S = 0).
+  assert (start_addr mod (size S) = 0) as Hstart by exact align_proof.
+  
+  assert ((frame_idx_u64 * size S) mod (size S) = 0) as Hoffset.
   {
-    apply to_Z_inj.
+    repeat apply to_Z_inj.
+    
     rewrite mod_spec.
-    repeat rewrite mul_spec.
-    pose proof (to_Z_bounded (of_nat idx)) as Hidx.
-    pose proof (to_Z_bounded (size S)) as Hsize.
+    
+    rewrite mul_spec.
+    admit. }
   
-    (* apply Z.mod_mul. *)
-    admit.
-  }
-  rewrite HidxMod.
-  simpl.
   apply to_Z_inj.
   rewrite mod_spec.
-  apply Zmod_0_l. 
+  
+  assert (to_Z (start_addr mod (size S)) = to_Z start_addr mod to_Z (size S))%Z.
+  { rewrite mod_spec. reflexivity. }
+  rewrite Hstart in H. simpl in H.
+  
+  assert (to_Z ((frame_idx_u64 * size S) mod (size S)) = to_Z (frame_idx_u64 * size S) mod to_Z (size S))%Z.
+  { rewrite mod_spec. reflexivity. }
+  rewrite Hoffset in H0. simpl in H0.
+  
+  admit.
 Admitted.
 
 Search (Z.modulo 0 _).
