@@ -1,4 +1,5 @@
 Require Import Coq.ZArith.ZArith.
+Require Import ZArith.
 Require Import Coq.Bool.Bool.
 Require Import Coq.Lists.List.
 Require Import Lia.
@@ -44,16 +45,28 @@ Definition frame_to_idx {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (
     else None
   else None.
 
+Search "mod_0_r".
+Compute wB.
+
 Lemma add_mod : forall a b c : int, (a + b) mod c = ((a mod c) + (b mod c)) mod c.
 Proof.
   intros a b c.
-  apply to_Z_inj.
-  
-  repeat rewrite mod_spec.
-  repeat rewrite add_spec.
-  symmetry.
-  (* This is basically Z.add_mod but idk how to prove from here*)
-  Admitted.
+  destruct (eqs c 0) as [Hc_zero | Hc_nonzero].
+  - subst c.
+    apply to_Z_inj.
+    repeat rewrite mod_spec.
+    repeat rewrite add_spec.
+    repeat rewrite mod_spec.
+    rewrite to_Z_0.
+    repeat rewrite Zmod_0_r.
+    reflexivity.
+  - apply to_Z_inj.
+    repeat rewrite mod_spec.
+    repeat rewrite add_spec.
+    repeat rewrite mod_spec.
+    admit.
+    
+Admitted.
 
 (** Convert index to frame within the allocator's range *)
 Program Definition idx_to_frame {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (idx : nat) : option (PhysFrame S) :=
@@ -81,7 +94,10 @@ Next Obligation.
   {
     apply to_Z_inj.
     rewrite mod_spec.
-    rewrite mul_spec.
+    repeat rewrite mul_spec.
+    pose proof (to_Z_bounded (of_nat idx)) as Hidx.
+    pose proof (to_Z_bounded (size S)) as Hsize.
+  
     (* apply Z.mod_mul. *)
     admit.
   }
