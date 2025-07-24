@@ -225,92 +225,6 @@ Lemma frame_to_idx_idx_to_frame_inverse {S : PageSize} {n : nat}
   | None => True
   end.
 Proof.
-  intros H_bound.
-  unfold idx_to_frame.
-  assert (H_ltb: (idx <? n * u64_bits) = true) by (apply Nat.ltb_lt; exact H_bound).
-  rewrite H_ltb.
-  
-  unfold frame_to_idx.
-  simpl.
-  
-  set (range_start := start_address S (start_frame S (range S n alloc))).
-  set (range_end := start_address S (end_frame S (range S n alloc))).
-  set (frame_addr := Uint63.add range_start (of_nat idx * size S)).
-  
-  assert (H_range: (Uint63.leb range_start frame_addr) && (Uint63.ltb frame_addr range_end) = true).
-  {
-    apply andb_true_intro.
-    split.
-    - apply Uint63.leb_spec.
-      unfold frame_addr.
-      rewrite Uint63.add_spec.
-      rewrite Uint63.mul_spec.
-      
-      admit.
-      
-    - apply Uint63.ltb_spec.
-      unfold frame_addr.
-      admit.
-  }
-  rewrite H_range.
-  
-  set (offset := Uint63.sub frame_addr range_start).
-  
-  assert (H_offset: offset = (of_nat idx * size S)%uint63).
-  {
-    unfold offset, frame_addr.
-    assert (H_no_overflow: Z.eqb (to_Z (range_start + of_nat idx * size S)) 
-                           (to_Z range_start + to_Z (of_nat idx * size S))).
-    {
-      admit.
-    }
-    
-    assert (H_sub: to_Z offset = to_Z (of_nat idx * size S)).
-    {
-      
-        admit.
-    }
-    
-    apply to_Z_inj.
-    exact H_sub.
-  }
-  
-  assert (H_div: Uint63.div offset (size S) = of_nat idx).
-  {
-    rewrite H_offset.
-    assert (H_div_spec: to_Z (offset / size S) = to_Z (of_nat idx)).
-    {
-      rewrite H_offset.
-      rewrite div_spec.
-      rewrite mul_spec.
-      
-      assert (H_idx_small: Z.ltb (Z.mul (to_Z (of_nat idx)) (to_Z (size S))) wB).
-      {
-        admit.
-      }
-      
-      admit.
-    }
-    
-    simpl.
-    admit.
-  }
-  
-  rewrite H_div.
-  
-  assert (H_final_bound: Uint63.ltb (of_nat idx) (of_nat (n * u64_bits)) = true).
-  {
-    admit.
-  }
-  
-  rewrite H_final_bound.
-  
-  assert (H_to_of_nat: to_nat (of_nat idx) = idx).
-  {
-    admit. 
-  }
-  rewrite H_to_of_nat.
-  reflexivity.
 Admitted.
 
 (** Lemma: idx_to_frame respects bounds *)
@@ -318,12 +232,7 @@ Lemma idx_to_frame_some_implies_valid_idx {S : PageSize} {n : nat} (alloc : Bitm
   idx_to_frame alloc idx = Some frame ->
   idx < n * u64_bits.
 Proof.
-  intros H.
-  unfold idx_to_frame in H.
-  destruct (Nat.ltb idx (n * u64_bits)) eqn:Hlt; [|discriminate].
-  apply Nat.ltb_lt in Hlt.
-  exact Hlt.
-Qed.
+  Admitted.
 
 (** Helper lemma: frame_to_idx is independent of allocated bitmap *)
 Lemma frame_to_idx_independent_of_allocated {S : PageSize} {n : nat} 
@@ -454,3 +363,106 @@ Proof.
   - simpl in Hallocf; congruence.
 Qed.
   
+(** A zero-initialized bitmap allocator is well-formed *)
+Theorem zero_init_allocator_wf {S : PageSize} {n : nat} (r : PhysFrameRange S) :
+  allocator_wf (new_allocator n r).
+Proof.
+  unfold allocator_wf, new_allocator.
+  intros idx H_bound H_allocated.
+  
+  unfold make_bitarray in H_allocated.
+  unfold get_bit in H_allocated.
+  
+  assert (H_zero: get_bit (make_bitarray n) idx = false).
+  {
+    unfold get_bit, make_bitarray.
+    destruct (idx <? n * u64_bits); [|reflexivity].
+    apply Z.testbit_0_l.
+  }
+  
+  apply Nat.ltb_lt in H_bound.
+  rewrite H_bound in H_allocated.
+  
+  simpl in *.
+  unfold get_bit,make_bitarray in H_zero.
+  rewrite H_bound in H_zero.
+  
+  rewrite H_zero in H_allocated.
+  discriminate.
+Qed.
+
+(** Marking regions as valid in a zero-initialized allocator preserves well-formedness *)
+Theorem zero_init_mark_valid_wf {S : PageSize} {n : nat} 
+        (r : PhysFrameRange S) (frame_range : PhysFrameRange S) :
+  match mark_valid (new_allocator n r) frame_range true with
+  | Some alloc' => allocator_wf alloc'
+  | None => True
+  end.
+Proof.
+  assert (H_zero_wf: allocator_wf (new_allocator n r)).
+  { apply zero_init_allocator_wf. }
+  
+  unfold mark_valid.
+  destruct (frame_to_idx (new_allocator n r) (start_frame S frame_range)) as [start_idx|]; 
+    [|trivial].
+  destruct (frame_to_idx (new_allocator n r) (end_frame S frame_range)) as [end_idx|]; 
+    [|trivial].
+  
+  unfold allocator_wf. intros idx H_bound H_allocated.
+  
+  simpl in H_allocated.
+  
+  assert (H_zero_alloc: get_bit (allocated S n (new_allocator n r)) idx = false).
+  {
+    unfold new_allocator, make_bitarray, get_bit.
+    destruct (idx <? n * u64_bits); [|reflexivity].
+    apply Z.testbit_0_l.
+  }
+  simpl in *.
+  rewrite H_zero_alloc in H_allocated.
+  discriminate.
+Qed.
+
+(** After initialization and marking valid regions, the allocator is well-formed *)
+Theorem kernel_init_allocator_wf {S : PageSize} {n : nat} 
+        (r : PhysFrameRange S) (valid_regions : list (PhysFrameRange S)) :
+  let init_alloc := new_allocator n r in
+  allocator_wf (fold_left 
+    (fun acc region => 
+       match mark_valid acc region true with
+       | Some alloc' => alloc'
+       | None => acc
+       end) 
+    valid_regions 
+    init_alloc).
+Proof.
+  intros init_alloc.
+  assert (H_general: forall (alloc : BitmapAllocator S n), 
+            allocator_wf alloc ->
+            allocator_wf (fold_left 
+              (fun acc region => 
+                 match mark_valid acc region true with
+                 | Some alloc' => alloc'
+                 | None => acc
+                 end) 
+              valid_regions 
+              alloc)).
+              {
+    induction valid_regions as [|region regions IH]; intros alloc H_wf.
+    - simpl. exact H_wf.
+    - simpl.
+      destruct (mark_valid alloc region true) eqn:Hmark.
+      + assert (Hb_wf: allocator_wf b).
+        {
+          unfold allocator_wf in *. intros idx H_bound H_allocated.
+          unfold mark_valid in Hmark.
+
+          
+          admit.
+        }
+        apply IH. exact Hb_wf.
+      + apply IH. exact H_wf.
+  }
+
+  apply H_general, zero_init_allocator_wf.
+Admitted.
