@@ -145,3 +145,7 @@ Definition is_frame_valid {S : PageSize} {n : nat} (alloc : BitmapAllocator S n)
   | Some idx => get_bit (valid S n alloc) idx
   | None => false
   end.
+
+(** Create a new bitmap allocator with zero-initialized bitarrays *)
+Definition new_allocator {S : PageSize} (n : nat) (r : PhysFrameRange S) : BitmapAllocator S n :=
+  mkBitmapAllocator S n (make_bitarray n) (make_bitarray n) r.
