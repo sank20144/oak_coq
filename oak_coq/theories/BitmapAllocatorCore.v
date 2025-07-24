@@ -47,26 +47,6 @@ Search "mod_0_r".
 Compute wB.
 Compute of_Z wB mod (size (mkPageSize Page4KB)) .
 
-Lemma add_mod : forall a b c : int, (a + b) mod c = ((a mod c) + (b mod c)) mod c.
-Proof.
-  intros a b c.
-  destruct (eqs c 0) as [Hc_zero | Hc_nonzero].
-  - subst c.
-    apply to_Z_inj.
-    repeat rewrite mod_spec.
-    repeat rewrite add_spec.
-    repeat rewrite mod_spec.
-    rewrite to_Z_0.
-    repeat rewrite Zmod_0_r.
-    reflexivity.
-  - apply to_Z_inj.
-    repeat rewrite mod_spec.
-    repeat rewrite add_spec.
-    repeat rewrite mod_spec.
-    admit.
-    
-Admitted.
-
 (** Convert index to frame within the allocator's range *)
 Program Definition idx_to_frame {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (idx : nat) : option (PhysFrame S) :=
   let frame_idx_u64 := of_nat idx in
@@ -78,36 +58,25 @@ Program Definition idx_to_frame {S : PageSize} {n : nat} (alloc : BitmapAllocato
   else 
     None.
 Next Obligation.
-  intros.
-  set (start_addr := start_address S (start_frame S (range S n alloc))).
-  
-  destruct (start_frame S (range S n alloc)) as [start_addr' align_proof].
-  simpl in start_addr.
-  
-  assert (start_addr mod (size S) = 0) as Hstart by exact align_proof.
-  
-  assert ((frame_idx_u64 * size S) mod (size S) = 0) as Hoffset.
-  {
-    repeat apply to_Z_inj.
-    
-    rewrite mod_spec.
-    
-    rewrite mul_spec.
-    admit. }
-  
-  apply to_Z_inj.
-  rewrite mod_spec.
-  
-  assert (to_Z (start_addr mod (size S)) = to_Z start_addr mod to_Z (size S))%Z.
-  { rewrite mod_spec. reflexivity. }
-  rewrite Hstart in H. simpl in H.
-  
-  assert (to_Z ((frame_idx_u64 * size S) mod (size S)) = to_Z (frame_idx_u64 * size S) mod to_Z (size S))%Z.
-  { rewrite mod_spec. reflexivity. }
-  rewrite Hoffset in H0. simpl in H0.
-  
-  admit.
 Admitted.
+
+Definition set_bit_range {n : nat} (bits : BitArray n) (start_idx end_idx : nat) (value : bool) : BitArray n :=
+  fold_left 
+    (fun acc idx => set_bit acc idx value) 
+    (seq start_idx (if Nat.leb start_idx end_idx then S (end_idx - start_idx) else 0))
+    bits.
+
+Definition mark_valid {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) 
+                      (frame_range : PhysFrameRange S) (is_valid : bool) : 
+                      option (BitmapAllocator S n) :=
+  match (frame_to_idx alloc (start_frame S frame_range), 
+         frame_to_idx alloc (end_frame S frame_range)) with
+  | (Some start_idx, Some end_idx) =>
+      let new_valid := set_bit_range (valid S n alloc) start_idx end_idx is_valid in
+      Some (mkBitmapAllocator S n (allocated S n alloc) new_valid 
+                              (range S n alloc))
+  | _ => None  (* Range is outside our bounds *)
+  end.
 
 Search (Z.modulo 0 _).
 (** * Core Operations *)
