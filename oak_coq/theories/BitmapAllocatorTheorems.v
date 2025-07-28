@@ -545,4 +545,4 @@ Proof.
   apply (H_general (new_allocator n r)).
   - apply zero_init_allocator_wf.
   - exists ranges. exact Hfold.
-Admitted.
+Qed.
