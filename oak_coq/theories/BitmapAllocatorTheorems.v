@@ -423,46 +423,126 @@ Proof.
   discriminate.
 Qed.
 
-(** After initialization and marking valid regions, the allocator is well-formed *)
-Theorem kernel_init_allocator_wf {S : PageSize} {n : nat} 
-        (r : PhysFrameRange S) (valid_regions : list (PhysFrameRange S)) :
-  let init_alloc := new_allocator n r in
-  allocator_wf (fold_left 
-    (fun acc region => 
-       match mark_valid acc region true with
-       | Some alloc' => alloc'
-       | None => acc
-       end) 
-    valid_regions 
-    init_alloc).
+(** Lemma: setting a range of bits preserves true bits *)
+Lemma set_bit_range_preserves_true_bits {n : nat} (bits : BitArray n) 
+      (start_idx end_idx idx : nat) :
+  get_bit bits idx = true ->
+  idx < n * u64_bits ->
+  get_bit (set_bit_range bits start_idx end_idx true) idx = true.
 Proof.
-  intros init_alloc.
-  assert (H_general: forall (alloc : BitmapAllocator S n), 
-            allocator_wf alloc ->
-            allocator_wf (fold_left 
-              (fun acc region => 
-                 match mark_valid acc region true with
-                 | Some alloc' => alloc'
-                 | None => acc
-                 end) 
-              valid_regions 
-              alloc)).
-              {
-    induction valid_regions as [|region regions IH]; intros alloc H_wf.
-    - simpl. exact H_wf.
+  intros Htrue Hbound.
+  unfold set_bit_range.
+  
+  assert (H_general: forall (initial_bits : BitArray n) (indices : list nat),
+    get_bit initial_bits idx = true ->
+    get_bit (fold_left (fun acc i => set_bit acc i true) indices initial_bits) idx = true).
+  {
+    intros initial_bits indices.
+    revert initial_bits.
+    induction indices as [|i rest IH]; intros initial_bits Hinit_true.
+    - simpl. exact Hinit_true.
     - simpl.
-      destruct (mark_valid alloc region true) eqn:Hmark.
-      + assert (Hb_wf: allocator_wf b).
-        {
-          unfold allocator_wf in *. intros idx H_bound H_allocated.
-          unfold mark_valid in Hmark.
-
-          
-          admit.
-        }
-        apply IH. exact Hb_wf.
-      + apply IH. exact H_wf.
+      apply IH.
+      destruct (Nat.eq_dec idx i) as [Heq|Hneq].
+      + subst i.
+        apply get_bit_set_bit_same.
+        exact Hbound.
+      + rewrite get_bit_set_bit_different; auto.
   }
+  
+  apply H_general.
+  exact Htrue.
+Qed.
 
-  apply H_general, zero_init_allocator_wf.
+Lemma mark_valid_preserves_wf {S : PageSize} {n : nat} 
+      (alloc : BitmapAllocator S n) (frame_range : PhysFrameRange S) :
+  allocator_wf alloc ->
+  match mark_valid alloc frame_range true with
+  | Some alloc' => allocator_wf alloc'
+  | None => True
+  end.
+Proof.
+  intros Hwf.
+  unfold mark_valid.
+  
+  destruct (frame_to_idx alloc (start_frame S frame_range)) as [start_idx|] eqn:Hstart;
+    [|trivial].
+  destruct (frame_to_idx alloc (end_frame S frame_range)) as [end_idx|] eqn:Hend;
+    [|trivial].
+  
+  unfold allocator_wf.
+  intros idx H_bound H_allocated.
+  simpl in H_allocated.
+  
+  assert (H_valid_original: get_bit (valid S n alloc) idx = true).
+  { apply Hwf; assumption. }
+  
+  simpl.
+  apply set_bit_range_preserves_true_bits; assumption.
+Qed.
+
+Theorem kernel_init_allocator_wf {S : PageSize} {n : nat} 
+        (r : PhysFrameRange S) :
+  forall alloc : BitmapAllocator S n,
+  (exists ranges : list (PhysFrameRange S),
+   fold_left (fun acc range => 
+     match acc with
+     | Some a => mark_valid a range true
+     | None => None
+     end) ranges (Some (new_allocator n r)) = Some alloc) ->
+  allocator_wf alloc.
+Proof.
+  intros alloc [ranges Hfold].
+  
+  assert (H_general: forall (init_alloc : BitmapAllocator S n),
+    allocator_wf init_alloc ->
+    forall final_alloc,
+    (exists remaining_ranges,
+     fold_left (fun acc range => 
+       match acc with
+       | Some a => mark_valid a range true
+       | None => None
+       end) remaining_ranges (Some init_alloc) = Some final_alloc) ->
+    allocator_wf final_alloc).
+  {
+    intros init_alloc Hinit_wf final_alloc [remaining_ranges Hremaining_fold].
+    revert init_alloc final_alloc Hinit_wf Hremaining_fold.
+    induction remaining_ranges as [|range rest_ranges IH]; 
+    intros init_alloc final_alloc Hinit_wf Hremaining_fold.
+    
+    - simpl in Hremaining_fold.
+      inversion Hremaining_fold. subst final_alloc.
+      exact Hinit_wf.
+    
+    - simpl in Hremaining_fold.
+      destruct (mark_valid init_alloc range true) as [intermediate_alloc|] eqn:Hmark. 
+      + assert (Hintermediate_wf: allocator_wf intermediate_alloc).
+        {
+          pose proof (mark_valid_preserves_wf init_alloc range Hinit_wf) as Hpres.
+          rewrite Hmark in Hpres.
+          exact Hpres.
+        }
+      
+        apply (IH intermediate_alloc final_alloc Hintermediate_wf Hremaining_fold).
+      + exfalso.
+        assert (H_none_propagates: forall remaining_list,
+          fold_left (fun acc range0 => 
+            match acc with
+            | Some a => @mark_valid S n a range0 true
+            | None => None
+            end) remaining_list None = None).
+        {
+          intro remaining_list.
+          induction remaining_list as [|range_elem rest IHrest].
+          - reflexivity.
+          - simpl. exact IHrest.
+        }
+        
+        rewrite H_none_propagates in Hremaining_fold.
+        discriminate Hremaining_fold.
+  }
+  
+  apply (H_general (new_allocator n r)).
+  - apply zero_init_allocator_wf.
+  - exists ranges. exact Hfold.
 Admitted.
