@@ -13,7 +13,8 @@ From OC Require Import PhysicalMemory.
 From OC Require Import BitmapAllocatorCore.
 From OC Require Import BitArrLemmas.
 
-(** * Theorems and Properties *)
+
+(* Lemmas on bitmap and bitarr ops*)
 
 Local Open Scope Z_scope.
 
@@ -65,6 +66,145 @@ Qed.
 
 Local Close Scope Z_scope.
 
+
+Lemma first_one_none_implies_count_zero {n : nat} (bits : BitArray n) :
+  first_one_from_zero bits = None ->
+  count_ones bits = 0%nat.
+Proof.
+  intros Hnone.
+  unfold count_ones.
+  assert (Hall_false: forall i, i < n * u64_bits -> 
+                      Z.testbit (bv_unsigned bits) (Z.of_nat i) = false).
+  {
+    intros i Hi.
+    unfold first_one_from_zero in Hnone.
+    apply find_none with (x := i) in Hnone.
+    - exact Hnone.
+    - apply in_seq.
+      split; [lia | exact Hi].
+    
+  }
+  
+  assert (Hhelper: count_ones_helper bits 0 (n * u64_bits) 0 = 0%nat).
+  {
+    assert (Hgen: forall start remaining acc,
+              (forall i, start <= i < start + remaining -> 
+               Z.testbit (bv_unsigned bits) (Z.of_nat i) = false) ->
+              count_ones_helper bits start remaining acc = acc).
+    {
+      intros start remaining.
+      revert start.
+      induction remaining as [|remaining' IH]; intros start acc Hfalse.
+      - reflexivity.
+      - simpl.
+        rewrite Hfalse; [|lia].
+        apply IH.
+        intros i Hi.
+        apply Hfalse.
+        lia.
+    }
+    
+    apply Hgen.
+    intros i Hi.
+    apply Hall_false.
+    lia.
+  }
+  
+  exact Hhelper.
+Qed.
+
+
+(** Lemma: frame_to_idx and idx_to_frame are left inverses *)
+Lemma frame_to_idx_idx_to_frame_inverse {S : PageSize} {n : nat} 
+      (alloc : BitmapAllocator S n) (idx : nat) :
+  idx < n * u64_bits -> 
+  match idx_to_frame alloc idx with
+  | Some frame => frame_to_idx alloc frame = Some idx
+  | None => True
+  end.
+Proof.
+Admitted.
+
+(** Lemma: idx_to_frame respects bounds *)
+Lemma idx_to_frame_some_implies_valid_idx {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (idx : nat) (frame : PhysFrame S) :
+  idx_to_frame alloc idx = Some frame ->
+  idx < n * u64_bits.
+Proof.
+  Admitted.
+
+(** Helper lemma: frame_to_idx is independent of allocated bitmap *)
+Lemma frame_to_idx_independent_of_allocated {S : PageSize} {n : nat} 
+      (alloc1 alloc2 : BitmapAllocator S n) (frame : PhysFrame S) :
+  valid S n alloc1 = valid S n alloc2 ->
+  range S n alloc1 = range S n alloc2 ->
+  frame_to_idx alloc1 frame = frame_to_idx alloc2 frame.
+Proof.
+  intros Hvalid Hrange.
+  unfold frame_to_idx.
+  rewrite Hrange.
+  reflexivity.
+Qed.
+
+
+(** Lemma: setting a range of bits preserves true bits *)
+Lemma set_bit_range_preserves_true_bits {n : nat} (bits : BitArray n) 
+      (start_idx end_idx idx : nat) :
+  get_bit bits idx = true ->
+  idx < n * u64_bits ->
+  get_bit (set_bit_range bits start_idx end_idx true) idx = true.
+Proof.
+  intros Htrue Hbound.
+  unfold set_bit_range.
+  
+  assert (H_general: forall (initial_bits : BitArray n) (indices : list nat),
+    get_bit initial_bits idx = true ->
+    get_bit (fold_left (fun acc i => set_bit acc i true) indices initial_bits) idx = true).
+  {
+    intros initial_bits indices.
+    revert initial_bits.
+    induction indices as [|i rest IH]; intros initial_bits Hinit_true.
+    - simpl. exact Hinit_true.
+    - simpl.
+      apply IH.
+      destruct (Nat.eq_dec idx i) as [Heq|Hneq].
+      + subst i.
+        apply get_bit_set_bit_same.
+        exact Hbound.
+      + rewrite get_bit_set_bit_different; auto.
+  }
+  
+  apply H_general.
+  exact Htrue.
+Qed.
+
+Lemma mark_valid_preserves_wf {S : PageSize} {n : nat} 
+      (alloc : BitmapAllocator S n) (frame_range : PhysFrameRange S) :
+  allocator_wf alloc ->
+  match mark_valid alloc frame_range true with
+  | Some alloc' => allocator_wf alloc'
+  | None => True
+  end.
+Proof.
+  intros Hwf.
+  unfold mark_valid.
+  
+  destruct (frame_to_idx alloc (start_frame S frame_range)) as [start_idx|] eqn:Hstart;
+    [|trivial].
+  destruct (frame_to_idx alloc (end_frame S frame_range)) as [end_idx|] eqn:Hend;
+    [|trivial].
+  
+  unfold allocator_wf.
+  intros idx H_bound H_allocated.
+  simpl in H_allocated.
+  
+  assert (H_valid_original: get_bit (valid S n alloc) idx = true).
+  { apply Hwf; assumption. }
+  
+  simpl.
+  apply set_bit_range_preserves_true_bits; assumption.
+Qed.
+
+(** * Theorems and Properties *)
 Theorem allocate_frame_preserves_wf:
    forall {S : PageSize} {n : nat} (alloc : BitmapAllocator S n),
   allocator_wf alloc ->
@@ -168,83 +308,6 @@ Proof.
     rewrite H_bit_true in H_bit_false.
     discriminate.
   - lia.
-Qed.
-
-Lemma first_one_none_implies_count_zero {n : nat} (bits : BitArray n) :
-  first_one_from_zero bits = None ->
-  count_ones bits = 0%nat.
-Proof.
-  intros Hnone.
-  unfold count_ones.
-  assert (Hall_false: forall i, i < n * u64_bits -> 
-                      Z.testbit (bv_unsigned bits) (Z.of_nat i) = false).
-  {
-    intros i Hi.
-    unfold first_one_from_zero in Hnone.
-    apply find_none with (x := i) in Hnone.
-    - exact Hnone.
-    - apply in_seq.
-      split; [lia | exact Hi].
-    
-  }
-  
-  assert (Hhelper: count_ones_helper bits 0 (n * u64_bits) 0 = 0%nat).
-  {
-    assert (Hgen: forall start remaining acc,
-              (forall i, start <= i < start + remaining -> 
-               Z.testbit (bv_unsigned bits) (Z.of_nat i) = false) ->
-              count_ones_helper bits start remaining acc = acc).
-    {
-      intros start remaining.
-      revert start.
-      induction remaining as [|remaining' IH]; intros start acc Hfalse.
-      - reflexivity.
-      - simpl.
-        rewrite Hfalse; [|lia].
-        apply IH.
-        intros i Hi.
-        apply Hfalse.
-        lia.
-    }
-    
-    apply Hgen.
-    intros i Hi.
-    apply Hall_false.
-    lia.
-  }
-  
-  exact Hhelper.
-Qed.
-
-(** Lemma: frame_to_idx and idx_to_frame are left inverses *)
-Lemma frame_to_idx_idx_to_frame_inverse {S : PageSize} {n : nat} 
-      (alloc : BitmapAllocator S n) (idx : nat) :
-  idx < n * u64_bits -> 
-  match idx_to_frame alloc idx with
-  | Some frame => frame_to_idx alloc frame = Some idx
-  | None => True
-  end.
-Proof.
-Admitted.
-
-(** Lemma: idx_to_frame respects bounds *)
-Lemma idx_to_frame_some_implies_valid_idx {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (idx : nat) (frame : PhysFrame S) :
-  idx_to_frame alloc idx = Some frame ->
-  idx < n * u64_bits.
-Proof.
-  Admitted.
-
-(** Helper lemma: frame_to_idx is independent of allocated bitmap *)
-Lemma frame_to_idx_independent_of_allocated {S : PageSize} {n : nat} 
-      (alloc1 alloc2 : BitmapAllocator S n) (frame : PhysFrame S) :
-  valid S n alloc1 = valid S n alloc2 ->
-  range S n alloc1 = range S n alloc2 ->
-  frame_to_idx alloc1 frame = frame_to_idx alloc2 frame.
-Proof.
-  intros Hvalid Hrange.
-  unfold frame_to_idx.
-  rewrite Hrange.
-  reflexivity.
 Qed.
 
 (** Allocation returns a valid, previously unallocated frame *)
@@ -421,64 +484,6 @@ Proof.
   simpl in *.
   rewrite H_zero_alloc in H_allocated.
   discriminate.
-Qed.
-
-(** Lemma: setting a range of bits preserves true bits *)
-Lemma set_bit_range_preserves_true_bits {n : nat} (bits : BitArray n) 
-      (start_idx end_idx idx : nat) :
-  get_bit bits idx = true ->
-  idx < n * u64_bits ->
-  get_bit (set_bit_range bits start_idx end_idx true) idx = true.
-Proof.
-  intros Htrue Hbound.
-  unfold set_bit_range.
-  
-  assert (H_general: forall (initial_bits : BitArray n) (indices : list nat),
-    get_bit initial_bits idx = true ->
-    get_bit (fold_left (fun acc i => set_bit acc i true) indices initial_bits) idx = true).
-  {
-    intros initial_bits indices.
-    revert initial_bits.
-    induction indices as [|i rest IH]; intros initial_bits Hinit_true.
-    - simpl. exact Hinit_true.
-    - simpl.
-      apply IH.
-      destruct (Nat.eq_dec idx i) as [Heq|Hneq].
-      + subst i.
-        apply get_bit_set_bit_same.
-        exact Hbound.
-      + rewrite get_bit_set_bit_different; auto.
-  }
-  
-  apply H_general.
-  exact Htrue.
-Qed.
-
-Lemma mark_valid_preserves_wf {S : PageSize} {n : nat} 
-      (alloc : BitmapAllocator S n) (frame_range : PhysFrameRange S) :
-  allocator_wf alloc ->
-  match mark_valid alloc frame_range true with
-  | Some alloc' => allocator_wf alloc'
-  | None => True
-  end.
-Proof.
-  intros Hwf.
-  unfold mark_valid.
-  
-  destruct (frame_to_idx alloc (start_frame S frame_range)) as [start_idx|] eqn:Hstart;
-    [|trivial].
-  destruct (frame_to_idx alloc (end_frame S frame_range)) as [end_idx|] eqn:Hend;
-    [|trivial].
-  
-  unfold allocator_wf.
-  intros idx H_bound H_allocated.
-  simpl in H_allocated.
-  
-  assert (H_valid_original: get_bit (valid S n alloc) idx = true).
-  { apply Hwf; assumption. }
-  
-  simpl.
-  apply set_bit_range_preserves_true_bits; assumption.
 Qed.
 
 Theorem kernel_init_allocator_wf {S : PageSize} {n : nat} 
