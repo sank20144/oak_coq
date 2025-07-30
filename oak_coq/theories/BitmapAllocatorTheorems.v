@@ -145,7 +145,6 @@ Proof.
   reflexivity.
 Qed.
 
-
 (** Lemma: setting a range of bits preserves true bits *)
 Lemma set_bit_range_preserves_true_bits {n : nat} (bits : BitArray n) 
       (start_idx end_idx idx : nat) :
@@ -203,6 +202,27 @@ Proof.
   simpl.
   apply set_bit_range_preserves_true_bits; assumption.
 Qed.
+
+
+
+Lemma mark_valid_preserves_no_allocated {S : PageSize} {n : nat} 
+      (alloc : BitmapAllocator S n) (frame_range : PhysFrameRange S) (is_valid : bool) :
+  (forall idx, idx < n * u64_bits -> get_bit (allocated S n alloc) idx = false) ->
+  match mark_valid alloc frame_range is_valid with
+  | Some alloc' => forall idx, idx < n * u64_bits -> get_bit (allocated S n alloc') idx = false
+  | None => True
+  end.
+Proof.
+  intros H_no_alloc.
+  unfold mark_valid.
+  destruct (frame_to_idx alloc (start_frame S frame_range)) as [start_idx|]; [|trivial].
+  destruct (frame_to_idx alloc (end_frame S frame_range)) as [end_idx|]; [|trivial].
+  
+  intros idx H_bound.
+  simpl.
+  exact (H_no_alloc idx H_bound).
+Qed.
+
 
 (** * Theorems and Properties *)
 Theorem allocate_frame_preserves_wf:
@@ -486,7 +506,40 @@ Proof.
   discriminate.
 Qed.
 
-Theorem kernel_init_allocator_wf {S : PageSize} {n : nat} 
+Theorem zero_init_mark_valid_general_wf {S : PageSize} {n : nat} 
+        (r : PhysFrameRange S) (frame_range : PhysFrameRange S) (is_valid : bool) :
+  match mark_valid (new_allocator n r) frame_range is_valid with
+  | Some alloc' => allocator_wf alloc'
+  | None => True
+  end.
+Proof.
+  assert (H_zero_wf: allocator_wf (new_allocator n r)).
+  { apply zero_init_allocator_wf. }
+  
+  unfold mark_valid.
+  destruct (frame_to_idx (new_allocator n r) (start_frame S frame_range)) as [start_idx|]; 
+    [|trivial].
+  destruct (frame_to_idx (new_allocator n r) (end_frame S frame_range)) as [end_idx|]; 
+    [|trivial].
+  
+  unfold allocator_wf. intros idx H_bound H_allocated.
+  
+  simpl in H_allocated.
+  
+  assert (H_zero_alloc: get_bit (allocated S n (new_allocator n r)) idx = false).
+  {
+    unfold new_allocator, make_bitarray, get_bit.
+    destruct (idx <? n * u64_bits); [|reflexivity].
+    apply Z.testbit_0_l.
+  }
+  
+  simpl in *.
+  rewrite H_zero_alloc in H_allocated.
+  discriminate.
+Qed.
+
+
+(* Theorem kernel_init_allocator_wf {S : PageSize} {n : nat} 
         (r : PhysFrameRange S) :
   forall alloc : BitmapAllocator S n,
   (exists ranges : list (PhysFrameRange S),
@@ -550,4 +603,80 @@ Proof.
   apply (H_general (new_allocator n r)).
   - apply zero_init_allocator_wf.
   - exists ranges. exact Hfold.
+Qed. *)
+
+
+Theorem kernel_init_allocator_wf {S : PageSize} {n : nat} 
+        (r : PhysFrameRange S) (ranges_with_validity : list (PhysFrameRange S * bool)) :
+  match fold_left (fun acc range_validity => 
+     match acc with
+     | Some a => mark_valid a (fst range_validity) (snd range_validity)
+     | None => None
+     end) ranges_with_validity (Some (new_allocator n r)) with
+  | Some alloc => allocator_wf alloc
+  | None => True
+  end.
+Proof.
+  assert (H_no_alloc_init: forall idx, idx < n * u64_bits -> 
+    get_bit (allocated S n (new_allocator n r)) idx = false).
+  {
+    intros idx H_bound.
+    unfold new_allocator, get_bit, make_bitarray.
+    destruct (idx <? n * u64_bits); [|reflexivity].
+    apply Z.testbit_0_l.
+  }
+  
+  assert (H_general: forall (init_alloc : BitmapAllocator S n) remaining_ranges,
+    (forall idx, idx < n * u64_bits -> get_bit (allocated S n init_alloc) idx = false) ->
+    match fold_left (fun acc range_validity => 
+       match acc with
+       | Some a => mark_valid a (fst range_validity) (snd range_validity)
+       | None => None
+       end) remaining_ranges (Some init_alloc) with
+    | Some final_alloc => allocator_wf final_alloc
+    | None => True
+    end).
+  {
+    intros init_alloc remaining_ranges.
+    revert init_alloc.
+    induction remaining_ranges as [|(range, validity) rest_ranges IH]; 
+    intros init_alloc H_no_alloc.
+    
+    - simpl.
+      unfold allocator_wf.
+      intros idx H_bound H_allocated.
+      assert (H_false: get_bit (allocated S n init_alloc) idx = false).
+      { apply H_no_alloc; exact H_bound. }
+      rewrite H_false in H_allocated.
+      discriminate.
+    
+    - simpl.
+      destruct (mark_valid init_alloc range validity) as [intermediate_alloc|] eqn:Hmark.
+      + assert (H_intermediate_no_alloc: forall idx, idx < n * u64_bits -> 
+          get_bit (allocated S n intermediate_alloc) idx = false).
+        {
+          pose proof (mark_valid_preserves_no_allocated init_alloc range validity H_no_alloc) as H_pres.
+          rewrite Hmark in H_pres.
+          exact H_pres.
+        }
+        
+        apply (IH intermediate_alloc H_intermediate_no_alloc).
+        
+      + assert (H_none_propagates: forall remaining_list,
+          fold_left (fun acc range_validity => 
+            match acc with
+            | Some a => @mark_valid S n a (fst range_validity) (snd range_validity)
+            | None => None
+            end) remaining_list None = None).
+        {
+          intro remaining_list.
+          induction remaining_list as [|range_elem rest IHrest].
+          - reflexivity.
+          - simpl. exact IHrest.
+        }
+        rewrite H_none_propagates.
+        trivial.
+  }
+  
+  apply (H_general (new_allocator n r) ranges_with_validity H_no_alloc_init).
 Qed.
