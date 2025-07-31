@@ -606,7 +606,7 @@ Proof.
 Qed. *)
 
 
-Theorem kernel_init_allocator_wf {S : PageSize} {n : nat} 
+Theorem mm_init_allocator_wf {S : PageSize} {n : nat} 
         (r : PhysFrameRange S) (ranges_with_validity : list (PhysFrameRange S * bool)) :
   match fold_left (fun acc range_validity => 
      match acc with
