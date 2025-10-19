@@ -1,5 +1,6 @@
 -Q . OC.oak_coq.theories
 
+MemoryModel.v
 PhysicalMemory.v
 BitArr.v
 BitArrLemmas.v
