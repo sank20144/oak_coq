@@ -13,17 +13,8 @@ Definition addr := nat.
 (* Lifetimes represented as natural numbers *)
 Definition lifetime := nat.
 
-(* Primitive values *)
-Inductive prim_val : Type :=
-  | VUnit : prim_val (* Null () *)
-  | VBool : bool -> prim_val
-  | VInt : Z -> prim_val.
-
-(* Values include primitives and references *)
-Inductive value : Type :=
-  | VPrim : prim_val -> value
-  | VRef : addr -> value      (* Immutable reference *)
-  | VMutRef : addr -> value.  (* Mutable reference *)
+(* Values stored in memory - abstract type for now *)
+Parameter value : Type.
 
 (* Borrow state for a memory location *)
 Inductive borrow_state : Type :=
