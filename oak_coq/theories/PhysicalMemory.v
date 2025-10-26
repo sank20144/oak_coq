@@ -14,6 +14,9 @@ Local Open Scope uint63_scope.
 (** Physical address representation *)
 Definition PhysAddr := Uint63.int.
 
+(** Constructor for PhysAddr *)
+Definition mkPhysAddr (addr : Uint63.int) : PhysAddr := addr.
+
 (** Valid page sizes: 4KB or 2MB *)
 Inductive ValidPageSize : Set :=
   | Page4KB : ValidPageSize
