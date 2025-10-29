@@ -95,7 +95,7 @@ Definition borrow_shared (m : memory) (a : addr) : option (memory * lifetime) :=
         let new_state := match cell_state cell with
                         | Owned => SharedBorrowed [lt]
                         | SharedBorrowed lts => SharedBorrowed (lt :: lts)
-                        | MutBorrowed _ => Owned (* unreachable | check again *)
+                        | MutBorrowed _ => SharedBorrowed [lt] (* Impossible by guard, but needed for totality *)
                         end in
         let cell' := mk_cell (cell_value cell) new_state in
         let h' := heap_update (mem_heap m) a cell' in
