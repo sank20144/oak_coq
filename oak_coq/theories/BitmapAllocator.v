@@ -1,82 +1,110 @@
 Require Import Coq.ZArith.ZArith.
-Require Import ZArith.
 Require Import Coq.Bool.Bool.
 Require Import Coq.Lists.List.
+Require Import Coq.Strings.String.
 Require Import Lia.
-Require Import Coq.Numbers.Cyclic.Int63.Uint63.
 Import ListNotations.
-From OC Require Import PhysicalMemory.
+
+From OC Require Import VariableModel.
 From OC Require Import BitArr.
-From OC Require Import MemoryModel.
+From OC Require Import PhysicalMemory.
 From OC Require Import BitmapAllocatorCore.
 
-Section BitmapAllocator.
+(** Axioms for converting BitmapAllocator to/from value *)
+Axiom bitmap_allocator_to_value : forall {S : PageSize} {n : nat}, 
+    BitmapAllocator S n -> value.
 
-    (** Generic axioms for converting between any type and value *)
-    Axiom type_to_value : forall {T : Type}, T -> value.
-    Axiom value_to_type : forall {T : Type}, value -> option T.
+Axiom value_to_bitmap_allocator : forall {S : PageSize} {n : nat}, 
+    value -> option (BitmapAllocator S n).
 
-    (** Generic roundtrip property *)
-    Axiom value_roundtrip : forall {T : Type} (x : T),
-        value_to_type (type_to_value x) = Some x.
+Axiom bitmap_allocator_roundtrip : forall {S : PageSize} {n : nat} (alloc : BitmapAllocator S n),
+    value_to_bitmap_allocator (bitmap_allocator_to_value alloc) = Some alloc.
 
-    (** Generic store function *)
-    Definition store {T : Type} (m : memory) (x : T) : memory * addr :=
-        MemoryModel.alloc m (type_to_value x).
+Notation "'let!' x '←' m ';' f" := 
+  (match m with Some x => f | None => None end)
+  (at level 200, x pattern, m at level 100, f at level 200, right associativity).
 
-    (** Generic load function *)
-    Definition load {T : Type} (m : memory) (a : addr) : option T :=
-        match read m a with
-        | Some v => value_to_type v
-        | None => None
-        end.
+Notation "'return!' e" := (Some e) (at level 200).
 
-    (** Initialize allocator in empty memory *)
-    Definition init_allocator {S : PageSize} {n : nat}
-        (r : PhysFrameRange S) : memory * addr :=
-        let allocator := new_allocator n r in
-        store empty_memory allocator.
+(** * Core Allocator Operations *)
 
-End BitmapAllocator.
+(** Initialize a new bitmap allocator as an owned variable *)
+Definition init_allocator {S : PageSize} {n : nat}
+    (s : prog_state) (alloc_var : var_name) (r : PhysFrameRange S) (lifetime_end : nat)
+    : option (prog_state * addr) :=
+  let alloc := mkBitmapAllocator S n (make_bitarray n) (make_bitarray n) r in
+  let_owned s alloc_var (bitmap_allocator_to_value alloc) lifetime_end.
 
-Section BitmapFrameAllocator.
+Definition mark_valid {S : PageSize} {n : nat}
+    (s : prog_state) (alloc_var : var_name) (temp_ref : var_name)
+    (frame_range : PhysFrameRange S) (is_valid : bool) (borrow_end : nat)
+    : option prog_state :=
+  (* Create mutable borrow *)
+  let! s1 ← let_mut_ref s temp_ref alloc_var borrow_end;
+  
+  let! alloc_val ← read_var s1 temp_ref;
+  let! alloc ← value_to_bitmap_allocator alloc_val;
+  
+  let! start_idx ← frame_to_idx alloc (start_frame S frame_range);
+  let! end_idx ← frame_to_idx alloc (end_frame S frame_range);
+  
+  let new_valid := set_bit_range (valid S n alloc) start_idx end_idx is_valid in
+  let alloc' := mkBitmapAllocator S n (allocated S n alloc) new_valid (range S n alloc) in
+  
+  let! s2 ← write_var s1 temp_ref (bitmap_allocator_to_value alloc');
+  
+  drop_var s2 temp_ref.
 
+(* unsafe impl<S: PageSize, const N: usize> FrameAllocator<S> for BitmapAllocator<S, N> {
+    fn allocate_frame(&mut self) -> Option<PhysFrame<S>> {
+        let frame_idx = self.valid.bitand(self.allocated.not()).first_one()?;
+        self.allocated.set(frame_idx, true);
+        self.frame(frame_idx)
+    }
+}
+*)
+(** Allocate a single frame - takes mutable reference *)
 Definition allocate_frame {S : PageSize} {n : nat}
-        (m : memory) (bitmapAllocAddr : addr) : option (memory * PhysFrame S * lifetime) :=
-        (* 1. Create mutable borrow of allocator *)
-        match borrow_mut m bitmapAllocAddr with
-        | Some (m1, lt) =>
-            (* 2. Load allocator through borrow *)
-            match load m1 bitmapAllocAddr with
-            | Some alloc =>
-                (* 3. Find first available frame *)
-                match first_one_from_zero (get_available alloc) with
-                | Some idx =>
-                    match idx_to_frame alloc idx with
-                    | Some frame =>
-                        (* 4. Update allocator's allocated bitmap *)
-                        let new_allocated := set_bit (allocated S n alloc) idx true in
-                        let alloc' := mkBitmapAllocator S n new_allocated 
-                                                        (valid S n alloc)
-                                                        (range S n alloc) in
-                        (* 5. Write updated allocator back through mutable borrow *)
-                        match write m1 bitmapAllocAddr (type_to_value alloc') with
-                        | Some m2 =>
-                            (* 6. End the mutable borrow *)
-                            match end_borrow m2 lt with
-                            | Some m3 => Some (m3, frame, lt)
-                            | None => None
-                            end
-                        | None => None
-                        end
-                    | None => None
-                    end
-                | None => None  (* No available frames *)
-                end
-            | None => None
-            end
-        | None => None  (* Cannot create mutable borrow *)
-        end.
+    (s : prog_state) (alloc_var : var_name) (temp_ref : var_name) (borrow_end : nat)
+    : option (prog_state * PhysFrame S) :=
+  (* Create mutable borrow *)
+  let! s1 ← let_mut_ref s temp_ref alloc_var borrow_end;
+  
+  let! alloc_val ← read_var s1 temp_ref;
+  let! alloc ← value_to_bitmap_allocator alloc_val;
+  
+  let available := bitand (valid S n alloc) (bitnot (allocated S n alloc)) in
+  
+  let! frame_idx ← first_one_from_zero available;
+  let! frame ← idx_to_frame alloc frame_idx;
+  
+  let new_allocated := set_bit (allocated S n alloc) frame_idx true in
+  let alloc' := mkBitmapAllocator S n new_allocated (valid S n alloc) (range S n alloc) in
+  
+  let! s2 ← write_var s1 temp_ref (bitmap_allocator_to_value alloc');
+  
+  let! s3 ← drop_var s2 temp_ref;
+  return! (s3, frame).
 
-
-End BitmapFrameAllocator.
+(** Deallocate a frame - takes mutable reference *)
+Definition deallocate_frame {S : PageSize} {n : nat}
+    (s : prog_state) (alloc_var : var_name) (temp_ref : var_name)
+    (frame : PhysFrame S) (borrow_end : nat)
+    : option prog_state :=
+  (* Create mutable borrow *)
+  let! s1 ← let_mut_ref s temp_ref alloc_var borrow_end;
+  
+  let! alloc_val ← read_var s1 temp_ref;
+  let! alloc ← value_to_bitmap_allocator alloc_val;
+  
+  let! frame_idx ← frame_to_idx alloc frame;
+  
+  if get_bit (valid S n alloc) frame_idx && get_bit (allocated S n alloc) frame_idx then
+    
+    let new_allocated := set_bit (allocated S n alloc) frame_idx false in
+    let alloc' := mkBitmapAllocator S n new_allocated (valid S n alloc) (range S n alloc) in
+    
+    let! s2 ← write_var s1 temp_ref (bitmap_allocator_to_value alloc');
+    
+    drop_var s2 temp_ref
+  else None.
