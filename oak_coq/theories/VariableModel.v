@@ -40,7 +40,7 @@ Record mem_cell : Type := mk_cell {
 Inductive location_state : Type :=
   | LocOwned : location_state                          (* No active borrows *)
   | LocShared : list lifetime -> location_state        (* Multiple shared borrows *)
-  | LocMut : lifetime -> location_state.               (* Single mutable borrow *)
+  | LocMut : list lifetime -> location_state.          (* Stack of mutable borrows (head = current) *)
 
 (* Heap stores values and their borrow states *)
 Definition heap := list (addr * mem_cell * location_state).
@@ -120,8 +120,8 @@ Definition has_outliving_borrows (h : heap) (a : addr) (owner_lt : lifetime) : b
   match heap_lookup h a with
   | Some (_, LocShared lts) => 
       existsb (fun lt => negb (lifetime_contained_in lt owner_lt)) lts
-  | Some (_, LocMut lt) => 
-      negb (lifetime_contained_in lt owner_lt)
+  | Some (_, LocMut lts) => 
+      existsb (fun lt => negb (lifetime_contained_in lt owner_lt)) lts
   | _ => false
   end.
 
@@ -224,7 +224,8 @@ Definition let_mut_ref (s : prog_state) (ref_var : var_name) (owned_var : var_na
           let lt_id := ps_next_lifetime_id s in
           let borrow_lt := mk_lifetime lt_id (ps_current_step s) borrow_end in
           if lifetime_contained_in borrow_lt owner_lt then
-            let h' := heap_update (ps_heap s) a cell (LocMut borrow_lt) in
+            (* Start a new mutable borrow stack with just this lifetime *)
+            let h' := heap_update (ps_heap s) a cell (LocMut [borrow_lt]) in
             let vars' := var_update (ps_vars s) ref_var (VarMutRef a borrow_lt) in
             Some (mk_prog_state h' vars' (ps_next_addr s) (S lt_id) (ps_current_step s))
           else None
@@ -233,13 +234,14 @@ Definition let_mut_ref (s : prog_state) (ref_var : var_name) (owned_var : var_na
   | Some (VarMutRef a ref_lt) =>
       (* Can reborrow from mutable reference *)
       match heap_lookup (ps_heap s) a with
-      | Some (cell, LocMut loc_lt) =>
-          (* Only allow reborrow if location's lifetime matches this reference's lifetime *)
+      | Some (cell, LocMut (loc_lt :: rest_stack)) =>
+          (* Only allow reborrow if location's top lifetime matches this reference's lifetime *)
           if lifetime_eq loc_lt ref_lt then
             let lt_id := ps_next_lifetime_id s in
             let borrow_lt := mk_lifetime lt_id (ps_current_step s) borrow_end in
             if lifetime_contained_in borrow_lt ref_lt then
-              let h' := heap_update (ps_heap s) a cell (LocMut borrow_lt) in
+              (* Push new lifetime onto the reborrow stack *)
+              let h' := heap_update (ps_heap s) a cell (LocMut (borrow_lt :: loc_lt :: rest_stack)) in
               let vars' := var_update (ps_vars s) ref_var (VarMutRef a borrow_lt) in
               Some (mk_prog_state h' vars' (ps_next_addr s) (S lt_id) (ps_current_step s))
             else None
@@ -273,18 +275,17 @@ Definition read_var (s : prog_state) (var : var_name) : option value :=
         match heap_lookup (ps_heap s) a with
         | Some (cell, LocOwned) => Some (cell_value cell)
         | Some (cell, LocShared _) => Some (cell_value cell)
-        | Some (cell, LocMut _) => None
+        | Some (cell, LocMut _) => None  (* Explicitly reject - should not happen *)
         | None => None
         end
       else None
   | Some (VarMutRef a lt) =>
       if lifetime_active s lt then
         match heap_lookup (ps_heap s) a with
-        | Some (cell, LocMut loc_lt) =>
-            (* Can only read if location's lifetime matches our lifetime *)
+        | Some (cell, LocMut (loc_lt :: _)) =>
+            (* Can only read if top of stack matches our lifetime *)
             if lifetime_eq loc_lt lt then Some (cell_value cell)
             else None  (* Location borrowed by a different reference *)
-        | None => None
         | _ => None
         end
       else None
@@ -307,11 +308,12 @@ Definition write_var (s : prog_state) (var : var_name) (val : value) : option pr
   | Some (VarMutRef a lt) =>
       if lifetime_active s lt then
         match heap_lookup (ps_heap s) a with
-        | Some (cell, LocMut loc_lt) =>
-            (* Can only write if location's lifetime matches our lifetime *)
+        | Some (cell, LocMut (loc_lt :: rest_stack)) =>
+            (* Can only write if top of stack matches our lifetime *)
             if lifetime_eq loc_lt lt then
               let cell' := mk_cell val in
-              let h' := heap_update (ps_heap s) a cell' (LocMut lt) in
+              (* Preserve the entire reborrow stack *)
+              let h' := heap_update (ps_heap s) a cell' (LocMut (loc_lt :: rest_stack)) in
               Some (mk_prog_state h' (ps_vars s) (ps_next_addr s) (ps_next_lifetime_id s) (ps_current_step s))
             else None  (* Location borrowed by a different reference *)
         | _ => None
@@ -363,12 +365,16 @@ Definition drop_var (s : prog_state) (var : var_name) : option prog_state :=
       | _ => None
       end
   | Some (VarMutRef a lt) =>
-      (* End mutable borrow *)
+      (* End mutable borrow by popping from the stack *)
       match heap_lookup (ps_heap s) a with
-      | Some (cell, LocMut loc_lt) =>
-          (* Only allow dropping if location's lifetime matches our lifetime *)
+      | Some (cell, LocMut (loc_lt :: rest_stack)) =>
+          (* Only allow dropping if top of stack matches our lifetime *)
           if lifetime_eq loc_lt lt then
-            let h' := heap_update (ps_heap s) a cell LocOwned in
+            let new_state := match rest_stack with
+                            | [] => LocOwned  (* Stack empty, restore to owned *)
+                            | _ => LocMut rest_stack  (* Pop stack, restore parent borrow *)
+                            end in
+            let h' := heap_update (ps_heap s) a cell new_state in
             let vars' := var_remove (ps_vars s) var in
             Some (mk_prog_state h' vars' (ps_next_addr s) (ps_next_lifetime_id s) (ps_current_step s))
           else None  (* Location borrowed by a different reference - cannot drop *)
