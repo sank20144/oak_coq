@@ -26,9 +26,10 @@ Parameter value : Type.
 
 (* Variable ownership status *)
 Inductive var_ownership : Type :=
-  | VarOwned : addr -> lifetime -> var_ownership        (* Owns value at address with lifetime *)
-  | VarSharedRef : addr -> lifetime -> var_ownership    (* Shared reference to address *)
-  | VarMutRef : addr -> lifetime -> var_ownership.      (* Mutable reference to address *)
+  | VarOwned : addr -> lifetime -> var_ownership        (* Immutable owned value *)
+  | VarMutOwned : addr -> lifetime -> var_ownership     (* Mutable owned value *)
+  | VarSharedRef : addr -> lifetime -> var_ownership    (* Shared reference *)
+  | VarMutRef : addr -> lifetime -> var_ownership.      (* Mutable reference *)
 
 (* Memory cell with value *)
 Record mem_cell : Type := mk_cell {
@@ -71,6 +72,10 @@ Definition lifetime_contained_in (inner outer : lifetime) : bool :=
 (* Helper: check if a lifetime is currently active *)
 Definition lifetime_active (s : prog_state) (lt : lifetime) : bool :=
   (Nat.leb (lt_start lt) (ps_current_step s)) && (Nat.ltb (ps_current_step s) (lt_end lt)).
+
+(* Helper: check if two lifetimes are the same *)
+Definition lifetime_eq (lt1 lt2 : lifetime) : bool :=
+  Nat.eqb (lt_id lt1) (lt_id lt2).
 
 (* Helper: lookup variable *)
 Fixpoint var_lookup (vars : var_env) (v : var_name) : option var_ownership :=
@@ -120,8 +125,7 @@ Definition has_outliving_borrows (h : heap) (a : addr) (owner_lt : lifetime) : b
   | _ => false
   end.
 
-(* Create an owned variable with a new value *)
-(* The caller must provide the expected lifetime end *)
+(* Create an immutable owned variable with a new value *)
 Definition let_owned (s : prog_state) (var : var_name) (val : value) (lt_end : nat)
     : option (prog_state * addr) :=
   if Nat.ltb (ps_current_step s) lt_end then
@@ -132,10 +136,22 @@ Definition let_owned (s : prog_state) (var : var_name) (val : value) (lt_end : n
     let h' := heap_update (ps_heap s) a cell LocOwned in
     let vars' := var_update (ps_vars s) var (VarOwned a lt) in
     Some (mk_prog_state h' vars' (S a) (S lt_id) (ps_current_step s), a)
-  else None.  (* Invalid lifetime bounds *)
+  else None.
+
+(* Create a mutable owned variable with a new value *)
+Definition let_mut_owned (s : prog_state) (var : var_name) (val : value) (lt_end : nat)
+    : option (prog_state * addr) :=
+  if Nat.ltb (ps_current_step s) lt_end then
+    let a := ps_next_addr s in
+    let lt_id := ps_next_lifetime_id s in
+    let lt := mk_lifetime lt_id (ps_current_step s) lt_end in
+    let cell := mk_cell val in
+    let h' := heap_update (ps_heap s) a cell LocOwned in
+    let vars' := var_update (ps_vars s) var (VarMutOwned a lt) in
+    Some (mk_prog_state h' vars' (S a) (S lt_id) (ps_current_step s), a)
+  else None.
 
 (* Create a shared reference: let ref_var = &owned_var *)
-(* The borrow's lifetime must be contained within the owner's lifetime *)
 Definition let_shared_ref (s : prog_state) (ref_var : var_name) (owned_var : var_name) (borrow_end : nat)
     : option prog_state :=
   match var_lookup (ps_vars s) owned_var with
@@ -145,12 +161,32 @@ Definition let_shared_ref (s : prog_state) (ref_var : var_name) (owned_var : var
       | Some (cell, LocOwned) =>
           let lt_id := ps_next_lifetime_id s in
           let borrow_lt := mk_lifetime lt_id (ps_current_step s) borrow_end in
-          (* Ensure borrow lifetime is contained within owner lifetime *)
           if lifetime_contained_in borrow_lt owner_lt then
             let h' := heap_update (ps_heap s) a cell (LocShared [borrow_lt]) in
             let vars' := var_update (ps_vars s) ref_var (VarSharedRef a borrow_lt) in
             Some (mk_prog_state h' vars' (ps_next_addr s) (S lt_id) (ps_current_step s))
-          else None  (* Borrow would outlive owner *)
+          else None
+      | Some (cell, LocShared lts) =>
+          let lt_id := ps_next_lifetime_id s in
+          let borrow_lt := mk_lifetime lt_id (ps_current_step s) borrow_end in
+          if lifetime_contained_in borrow_lt owner_lt then
+            let h' := heap_update (ps_heap s) a cell (LocShared (borrow_lt :: lts)) in
+            let vars' := var_update (ps_vars s) ref_var (VarSharedRef a borrow_lt) in
+            Some (mk_prog_state h' vars' (ps_next_addr s) (S lt_id) (ps_current_step s))
+          else None
+      | _ => None
+      end
+  | Some (VarMutOwned a owner_lt) =>
+      (* Can shared borrow from mutable owned *)
+      match heap_lookup (ps_heap s) a with
+      | Some (cell, LocOwned) =>
+          let lt_id := ps_next_lifetime_id s in
+          let borrow_lt := mk_lifetime lt_id (ps_current_step s) borrow_end in
+          if lifetime_contained_in borrow_lt owner_lt then
+            let h' := heap_update (ps_heap s) a cell (LocShared [borrow_lt]) in
+            let vars' := var_update (ps_vars s) ref_var (VarSharedRef a borrow_lt) in
+            Some (mk_prog_state h' vars' (ps_next_addr s) (S lt_id) (ps_current_step s))
+          else None
       | Some (cell, LocShared lts) =>
           let lt_id := ps_next_lifetime_id s in
           let borrow_lt := mk_lifetime lt_id (ps_current_step s) borrow_end in
@@ -162,7 +198,7 @@ Definition let_shared_ref (s : prog_state) (ref_var : var_name) (owned_var : var
       | _ => None
       end
   | Some (VarSharedRef a ref_lt) =>
-      (* Can reborrow from shared reference, but new borrow must be contained within source *)
+      (* Can reborrow from shared reference *)
       match heap_lookup (ps_heap s) a with
       | Some (cell, LocShared lts) =>
           let lt_id := ps_next_lifetime_id s in
@@ -181,32 +217,33 @@ Definition let_shared_ref (s : prog_state) (ref_var : var_name) (owned_var : var
 Definition let_mut_ref (s : prog_state) (ref_var : var_name) (owned_var : var_name) (borrow_end : nat)
     : option prog_state :=
   match var_lookup (ps_vars s) owned_var with
-  | Some (VarOwned a owner_lt) =>
+  | Some (VarMutOwned a owner_lt) =>
       (* Check if location can be mutably borrowed *)
       match heap_lookup (ps_heap s) a with
       | Some (cell, LocOwned) =>
           let lt_id := ps_next_lifetime_id s in
           let borrow_lt := mk_lifetime lt_id (ps_current_step s) borrow_end in
-          (* Ensure borrow lifetime is contained within owner lifetime *)
           if lifetime_contained_in borrow_lt owner_lt then
             let h' := heap_update (ps_heap s) a cell (LocMut borrow_lt) in
             let vars' := var_update (ps_vars s) ref_var (VarMutRef a borrow_lt) in
             Some (mk_prog_state h' vars' (ps_next_addr s) (S lt_id) (ps_current_step s))
-          else None  (* Borrow would outlive owner *)
-      | _ => None  (* Cannot mutably borrow if any borrows exist *)
+          else None
+      | _ => None
       end
   | Some (VarMutRef a ref_lt) =>
       (* Can reborrow from mutable reference *)
       match heap_lookup (ps_heap s) a with
-      | Some (cell, LocMut _) =>
-          let lt_id := ps_next_lifetime_id s in
-          let borrow_lt := mk_lifetime lt_id (ps_current_step s) borrow_end in
-          (* New borrow must be contained within source reference *)
-          if lifetime_contained_in borrow_lt ref_lt then
-            let h' := heap_update (ps_heap s) a cell (LocMut borrow_lt) in
-            let vars' := var_update (ps_vars s) ref_var (VarMutRef a borrow_lt) in
-            Some (mk_prog_state h' vars' (ps_next_addr s) (S lt_id) (ps_current_step s))
-          else None
+      | Some (cell, LocMut loc_lt) =>
+          (* Only allow reborrow if location's lifetime matches this reference's lifetime *)
+          if lifetime_eq loc_lt ref_lt then
+            let lt_id := ps_next_lifetime_id s in
+            let borrow_lt := mk_lifetime lt_id (ps_current_step s) borrow_end in
+            if lifetime_contained_in borrow_lt ref_lt then
+              let h' := heap_update (ps_heap s) a cell (LocMut borrow_lt) in
+              let vars' := var_update (ps_vars s) ref_var (VarMutRef a borrow_lt) in
+              Some (mk_prog_state h' vars' (ps_next_addr s) (S lt_id) (ps_current_step s))
+            else None
+          else None  (* Location borrowed by a different reference *)
       | _ => None
       end
   | _ => None
@@ -219,35 +256,48 @@ Definition read_var (s : prog_state) (var : var_name) : option value :=
       if lifetime_active s lt then
         match heap_lookup (ps_heap s) a with
         | Some (cell, LocOwned) => Some (cell_value cell)
-        | Some (cell, LocShared _) => Some (cell_value cell)  (* OK to read when shared borrowed *)
-        | Some (cell, LocMut _) => None  (* Cannot read when mutably borrowed *)
-        | None => None
+        | Some (cell, LocShared _) => Some (cell_value cell)
+        | _ => None  (* Cannot read when mutably borrowed *)
         end
-      else None  (* Lifetime expired *)
+      else None
+  | Some (VarMutOwned a lt) =>
+      if lifetime_active s lt then
+        match heap_lookup (ps_heap s) a with
+        | Some (cell, LocOwned) => Some (cell_value cell)
+        | Some (cell, LocShared _) => Some (cell_value cell)
+        | _ => None  (* Cannot read when mutably borrowed *)
+        end
+      else None
   | Some (VarSharedRef a lt) =>
       if lifetime_active s lt then
         match heap_lookup (ps_heap s) a with
-        | Some (cell, _) => Some (cell_value cell)
+        | Some (cell, LocOwned) => Some (cell_value cell)
+        | Some (cell, LocShared _) => Some (cell_value cell)
+        | Some (cell, LocMut _) => None
         | None => None
         end
       else None
   | Some (VarMutRef a lt) =>
       if lifetime_active s lt then
         match heap_lookup (ps_heap s) a with
-        | Some (cell, _) => Some (cell_value cell)
+        | Some (cell, LocMut loc_lt) =>
+            (* Can only read if location's lifetime matches our lifetime *)
+            if lifetime_eq loc_lt lt then Some (cell_value cell)
+            else None  (* Location borrowed by a different reference *)
         | None => None
+        | _ => None
         end
       else None
   | None => None
   end.
 
-(* Write through a variable (only owned or mut ref) *)
+(* Write through a variable (only VarMutOwned or VarMutRef) *)
 Definition write_var (s : prog_state) (var : var_name) (val : value) : option prog_state :=
   match var_lookup (ps_vars s) var with
-  | Some (VarOwned a lt) =>
+  | Some (VarMutOwned a lt) =>
       if lifetime_active s lt then
         match heap_lookup (ps_heap s) a with
-        | Some (cell, LocOwned) =>  (* Only allow if no active borrows *)
+        | Some (cell, LocOwned) =>
             let cell' := mk_cell val in
             let h' := heap_update (ps_heap s) a cell' LocOwned in
             Some (mk_prog_state h' (ps_vars s) (ps_next_addr s) (ps_next_lifetime_id s) (ps_current_step s))
@@ -257,13 +307,17 @@ Definition write_var (s : prog_state) (var : var_name) (val : value) : option pr
   | Some (VarMutRef a lt) =>
       if lifetime_active s lt then
         match heap_lookup (ps_heap s) a with
-        | Some (cell, LocMut _) =>
-            let cell' := mk_cell val in
-            let h' := heap_update (ps_heap s) a cell' (LocMut lt) in
-            Some (mk_prog_state h' (ps_vars s) (ps_next_addr s) (ps_next_lifetime_id s) (ps_current_step s))
+        | Some (cell, LocMut loc_lt) =>
+            (* Can only write if location's lifetime matches our lifetime *)
+            if lifetime_eq loc_lt lt then
+              let cell' := mk_cell val in
+              let h' := heap_update (ps_heap s) a cell' (LocMut lt) in
+              Some (mk_prog_state h' (ps_vars s) (ps_next_addr s) (ps_next_lifetime_id s) (ps_current_step s))
+            else None  (* Location borrowed by a different reference *)
         | _ => None
         end
       else None
+  | Some (VarOwned _ _) => None      (* Cannot write through immutable owned *)
   | Some (VarSharedRef _ _) => None  (* Cannot write through shared ref *)
   | None => None
   end.
@@ -283,9 +337,15 @@ Definition drop_var (s : prog_state) (var : var_name) : option prog_state :=
   | Some (VarOwned a lt) =>
       (* Check that no borrows outlive this lifetime *)
       if has_outliving_borrows (ps_heap s) a lt then
-        None  (* Cannot drop - would leave dangling references *)
+        None
       else
-        (* Remove variable from environment *)
+        let vars' := var_remove (ps_vars s) var in
+        Some (mk_prog_state (ps_heap s) vars' (ps_next_addr s) (ps_next_lifetime_id s) (ps_current_step s))
+  | Some (VarMutOwned a lt) =>
+      (* Check that no borrows outlive this lifetime *)
+      if has_outliving_borrows (ps_heap s) a lt then
+        None
+      else
         let vars' := var_remove (ps_vars s) var in
         Some (mk_prog_state (ps_heap s) vars' (ps_next_addr s) (ps_next_lifetime_id s) (ps_current_step s))
   | Some (VarSharedRef a lt) =>
@@ -305,12 +365,13 @@ Definition drop_var (s : prog_state) (var : var_name) : option prog_state :=
   | Some (VarMutRef a lt) =>
       (* End mutable borrow *)
       match heap_lookup (ps_heap s) a with
-      | Some (cell, LocMut lt') =>
-          if Nat.eqb (lt_id lt) (lt_id lt') then
+      | Some (cell, LocMut loc_lt) =>
+          (* Only allow dropping if location's lifetime matches our lifetime *)
+          if lifetime_eq loc_lt lt then
             let h' := heap_update (ps_heap s) a cell LocOwned in
             let vars' := var_remove (ps_vars s) var in
             Some (mk_prog_state h' vars' (ps_next_addr s) (ps_next_lifetime_id s) (ps_current_step s))
-          else None
+          else None  (* Location borrowed by a different reference - cannot drop *)
       | _ => None
       end
   | None => None
@@ -325,23 +386,40 @@ Definition move_var (s : prog_state) (dest : var_name) (src : var_name) : option
   match var_lookup (ps_vars s) src with
   | Some (VarOwned a lt) =>
       if lifetime_active s lt then
-        (* Check no active borrows before moving *)
         match heap_lookup (ps_heap s) a with
         | Some (cell, LocOwned) =>
-            (* Remove source variable and add destination with same ownership *)
             let vars' := var_remove (ps_vars s) src in
             let vars'' := var_update vars' dest (VarOwned a lt) in
             Some (mk_prog_state (ps_heap s) vars'' (ps_next_addr s) (ps_next_lifetime_id s) (ps_current_step s))
-        | _ => None  (* Cannot move while borrowed *)
+        | _ => None
         end
       else None
-  | _ => None  (* Can only move owned values *)
+  | Some (VarMutOwned a lt) =>
+      if lifetime_active s lt then
+        match heap_lookup (ps_heap s) a with
+        | Some (cell, LocOwned) =>
+            let vars' := var_remove (ps_vars s) src in
+            let vars'' := var_update vars' dest (VarMutOwned a lt) in
+            Some (mk_prog_state (ps_heap s) vars'' (ps_next_addr s) (ps_next_lifetime_id s) (ps_current_step s))
+        | _ => None
+        end
+      else None
+  | _ => None
   end.
 
 (* Copy operation: for Copy types, create a new owned value with same data *)
+(* Note: creates immutable owned by default *)
 Definition copy_var (s : prog_state) (dest : var_name) (src : var_name) (lt_end : nat) 
     : option (prog_state * addr) :=
   match read_var s src with
   | Some val => let_owned s dest val lt_end
+  | None => None
+  end.
+
+(* Copy operation creating mutable owned variable *)
+Definition copy_var_mut (s : prog_state) (dest : var_name) (src : var_name) (lt_end : nat) 
+    : option (prog_state * addr) :=
+  match read_var s src with
+  | Some val => let_mut_owned s dest val lt_end
   | None => None
   end.
