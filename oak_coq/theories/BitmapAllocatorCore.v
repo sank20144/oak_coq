@@ -58,7 +58,8 @@ Program Definition idx_to_frame {S : PageSize} {n : nat} (alloc : BitmapAllocato
   else 
     None.
 Next Obligation.
-Admitted.
+Admitted. (* Bug in implementation *)
+
 
 Definition set_bit_range {n : nat} (bits : BitArray n) (start_idx end_idx : nat) (value : bool) : BitArray n :=
   fold_left 
