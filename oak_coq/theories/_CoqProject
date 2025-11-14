@@ -1,11 +1,9 @@
 -Q . OC.oak_coq.theories
 
-VariableModel.v
 MemoryModel.v
 PhysicalMemory.v
 BitArr.v
 BitArrLemmas.v
 BitmapAllocatorCore.v
 BitmapAllocatorTheorems.v
-BitmapAllocator.v
 
