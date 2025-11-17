@@ -7,6 +7,8 @@ Require Import Coq.Numbers.Cyclic.Int63.Uint63.
 Import ListNotations.
 From OC Require Import PhysicalMemory.
 From OC Require Import BitArr.
+From OC Require Import MemoryModel.
+
 
 Local Open Scope uint63_scope.
 
