@@ -75,3 +75,9 @@ Definition eqb_phys_addr (a b : PhysAddr) : bool :=
 
 Definition add_phys_addr (a b : PhysAddr) : Uint63.int :=
   Uint63.add a b.
+
+Lemma PageSize_eq_dec : forall (s1 s2 : PageSize), {s1 = s2} + {s1 <> s2}.
+Proof.
+  decide equality.
+  decide equality.
+Defined.
