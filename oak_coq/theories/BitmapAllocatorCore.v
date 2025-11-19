@@ -12,143 +12,210 @@ From OC Require Import MemoryModel.
 
 Local Open Scope uint63_scope.
 
-(** * BitmapAllocator *)
+Notation "'let*' x ':=' e1 'in' e2" :=
+  (match e1 with
+   | Some x => e2
+   | None => None
+   end)
+  (at level 61, x pattern, e1 at next level, right associativity).
 
-Record BitmapAllocator (S : PageSize) (N : nat) := mkBitmapAllocator {
-  allocated : BitArray N; (* Tracks allocated frames *)
-  valid : BitArray N;     (* Tracks valid frames *)
-  range : PhysFrameRange S;
-}.
+Notation "'let*' ( x , y ) ':=' e1 'in' e2" :=
+  (match e1 with
+   | Some (x, y) => e2
+   | None => None
+   end)
+  (at level 61, x pattern, y pattern, e1 at next level, right associativity).
+
+
+Notation "'return' e" := (Some e) (at level 60).
 
 (** A frame index is within the allocator's range *)
-Definition frame_idx_valid {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (idx : nat) : Prop :=
-  idx < n * u64_bits.
+(* Definition frame_idx_valid {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (idx : nat) : Prop :=
+  idx < n * u64_bits. *)
 
-(** * Well-formedness Predicate *)
+(** Well-formedness predicate for allocator state *)
+Definition allocator_wf {S : PageSize} {n : nat} 
+  (allocated valid : BitArray n) : Prop :=
+  forall idx, 
+    (Uint63.to_nat idx) < n * u64_bits -> 
+    get_bit allocated idx = true -> 
+    get_bit valid idx = true.
 
-(** An allocator is well-formed if allocated frames are always valid *)
-Definition allocator_wf {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) : Prop :=
-  forall idx : nat, 
-    idx < n * u64_bits-> 
-    get_bit (allocated S n alloc) idx = true -> 
-    get_bit (valid S n alloc) idx = true.
-
-(** Convert frame to index within the allocator's range *)
-Definition frame_to_idx {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (frame : PhysFrame S) : option nat :=
-  let frame_addr := start_address S frame in
-  let range_start := start_address S (start_frame S (range S n alloc)) in
-  let range_end := start_address S (end_frame S (range S n alloc)) in
-  if (range_start <=? frame_addr) && (frame_addr <? range_end) then
-    let offset := frame_addr - range_start in
-    let idx := (offset / size S) in
-    let ret := to_nat idx in
-    Some ret 
-  else None.
-
-Search "mod_0_r".
-Compute wB.
-Compute of_Z wB mod (size (mkPageSize Page4KB)) .
-
-(** Convert index to frame within the allocator's range *)
-Program Definition idx_to_frame {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (idx : nat) : option (PhysFrame S) :=
-  let frame_idx_u64 := of_nat idx in
-  let frame_addr := start_address S (start_frame S (range S n alloc)) + (frame_idx_u64 * size S) in
-  let range_end := start_address S (end_frame S (range S n alloc)) in
-  if frame_addr <? range_end then
-    let candidate_frame := mkPhysFrame S frame_addr _ in
-    Some candidate_frame
-  else 
-    None.
-Next Obligation.
-Admitted. (* Bug in implementation *)
-
-
-Definition set_bit_range {n : nat} (bits : BitArray n) (start_idx end_idx : nat) (value : bool) : BitArray n :=
-  fold_left 
-    (fun acc idx => set_bit acc idx value) 
-    (seq start_idx (if Nat.leb start_idx end_idx then S (end_idx - start_idx) else 0))
-    bits.
-
-Definition mark_valid {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) 
-                      (frame_range : PhysFrameRange S) (is_valid : bool) : 
-                      option (BitmapAllocator S n) :=
-  match (frame_to_idx alloc (start_frame S frame_range), 
-         frame_to_idx alloc (end_frame S frame_range)) with
-  | (Some start_idx, Some end_idx) =>
-      let new_valid := set_bit_range (valid S n alloc) start_idx end_idx is_valid in
-      Some (mkBitmapAllocator S n (allocated S n alloc) new_valid 
-                              (range S n alloc))
-  | _ => None  (* Range is outside our bounds *)
-  end.
-
-Search (Z.modulo 0 _).
-(** * Core Operations *)
 
 (** Get available frames (valid AND not allocated) *)
-Definition get_available {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) : BitArray n :=
-  bitand (valid S n alloc) (bitnot (allocated S n alloc)).
+Definition get_available {n : nat} (allocated valid : BitArray n) : BitArray n :=
+  bitand valid (bitnot allocated).
+  
+(** Translate: 
+ fn frame(&self, frame_idx: usize) -> Option<PhysFrame<S>> {
+        if self.range.end < self.range.start + frame_idx as u64 {
+            None
+        } else {
+            Some(self.range.start + frame_idx as u64)
+        }
+    } *)
+Program Definition frame {S : PageSize} {n : nat}
+  (p : program_state) (alloc_addr : addr) (frame_idx : Uint63.int) : option (PhysFrame S) :=
+  
+  let* alloc := @read_allocator S n p alloc_addr in
+  
+  if start_address S (end_frame S (range alloc)) <? start_address S (start_frame S (range alloc)) + (frame_idx * size S) then
+    None
+  else 
+    return (mkPhysFrame S (start_address S (start_frame S (range alloc))) _).
 
-(** Allocate a single frame *)
-Definition allocate_frame {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) :
-                          option (PhysFrame S * BitmapAllocator S n) :=
-  match first_one_from_zero (get_available alloc) with
-  | Some idx =>
-      match idx_to_frame alloc idx with
-      | Some frame =>
-          let new_allocated := set_bit (allocated S n alloc) idx true in
-          let new_alloc := mkBitmapAllocator S n new_allocated (valid S n alloc)
-                                            (range S n alloc) in
-          Some (frame, new_alloc)
-      | None => None
-      end
-  | None => None  (* No available frames *)
-  end.
+Next Obligation.
+Admitted.
 
-(** Deallocate a frame *)
-Definition deallocate_frame {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) 
-                            (frame : PhysFrame S) :
-                            option (BitmapAllocator S n) :=
-  match frame_to_idx alloc frame with
-  | Some idx =>
-      (* Check that frame is valid and currently allocated *)
-      if get_bit (valid S n alloc) idx && get_bit (allocated S n alloc) idx then
-        let new_allocated := set_bit (allocated S n alloc) idx false in
-        Some (mkBitmapAllocator S n new_allocated (valid S n alloc)
-                                (range S n alloc))
-      else None  (* Frame not valid or not allocated *)
-  | None => None  (* Frame outside our range *)
-  end.
+(** Translate:
+fn frame_idx(&self, frame: PhysFrame<S>) -> Option<usize> {
+        if frame < self.range.start || frame > self.range.end {
+            None
+        } else {
+            Some(
+                ((frame.start_address().as_u64() - self.range.start.start_address().as_u64())
+                    / S::SIZE) as usize,
+            )
+        }
+    } *)
+Definition frame_idx {S : PageSize} {n : nat}
+  (p : program_state) (alloc_addr : addr) (frame : PhysFrame S) : option Uint63.int :=
+  
+  let* alloc := @read_allocator S n p alloc_addr in
+  
+  if (start_address S frame <=? start_address S (start_frame S (range alloc))) 
+  || (start_address S (end_frame S (range alloc)) <? start_address S frame) then
+    None
+  else 
+    return ((start_address S frame - start_address S (start_frame S (range alloc))) 
+    / size S).
+
+
+Definition fill {n : nat} (bits : BitArray n) (start_idx end_idx : nat) (value : bool) : BitArray n :=
+  fold_left 
+    (fun acc idx => set_bit acc idx value) 
+    (map (fun n => of_Z (Z.of_nat n)) (seq start_idx (if Nat.leb start_idx end_idx then S (end_idx - start_idx) else 0)))
+    bits.
+
+(** Translate:
+pub fn mark_valid(&mut self, range: PhysFrameRange<S>, valid: bool) {
+        if let (Some(start), Some(end)) = (self.frame_idx(range.start), self.frame_idx(range.end)) {
+            self.valid.get_mut(start..end).unwrap().fill(valid);
+        } else {
+            panic!(
+                "Can't mark validity for frame range that's outside our range; our range: {:?}, frame range: {:?}",
+                self.range, range
+            );
+        }
+    } *)
+Definition mark_valid {S : PageSize} {n : nat} 
+  (p : program_state) (alloc_addr : addr) 
+  (frame_range : PhysFrameRange S) (is_valid : bool) : option program_state :=
+  let* allocator := @read_allocator S n p alloc_addr in
+  
+  let* start_idx := @frame_idx S n p alloc_addr (start_frame S frame_range) in
+  let* end_idx := @frame_idx S n p alloc_addr (end_frame S frame_range) in
+  
+  let (p1, start_idx_addr) := alloc p (VUint63 start_idx) in
+  let (p2, end_idx_addr) := alloc p1 (VUint63 end_idx) in
+  
+  let new_valid := fill allocator.(valid) (Z.to_nat (to_Z start_idx)) (Z.to_nat (to_Z end_idx)) is_valid in
+  let* p3 := @update_allocator_valid S n p2 alloc_addr new_valid in
+  let* p4 := dealloc p3 end_idx_addr in
+  let* p5 := dealloc p4 start_idx_addr in
+
+  return p5.
+
+
+(** Translate:
+unsafe impl<S: PageSize, const N: usize> FrameAllocator<S> for BitmapAllocator<S, N> {
+    fn allocate_frame(&mut self) -> Option<PhysFrame<S>> {
+        let frame_idx = self.valid.bitand(self.allocated.not()).first_one()?;
+        self.allocated.set(frame_idx, true);
+        self.frame(frame_idx)
+    }
+}*)
+Definition allocate_frame {S : PageSize} {n : nat} 
+  (p : program_state) (alloc_addr : addr) : 
+  option (PhysFrame S * program_state) :=
+  let* allocator := @read_allocator S n p alloc_addr in
+
+  let* frame_idx := first_one_from_zero (get_available (allocated allocator) (valid allocator)) in
+  let (p1, frame_idx_addr) := alloc p (VUint63 frame_idx) in
+  
+  let* p2 := @update_allocator_allocated S n p1 alloc_addr (set_bit (allocated allocator) frame_idx true) in
+  let* frame := @frame S n p alloc_addr frame_idx in
+
+  let* p3 := dealloc p2 frame_idx_addr in
+  return (frame, p3).
+
+(** Translate:
+unsafe fn deallocate_frame(&mut self, frame: PhysFrame<S>) {
+        if let Some(frame_idx) = self.frame_idx(frame) {
+            if !self.valid[frame_idx] {
+                panic!("frame {:?} is not valid in this allocator", frame);
+            }
+            if !self.allocated[frame_idx] {
+                panic!("frame {:?} was not allocated in this allocator", frame);
+            }
+            self.allocated.set(frame_idx, false);
+        } else {
+            panic!(
+                "can't deallocate frame that's outside our range; our range: {:?}, frame: {:?}",
+                self.range, frame
+            );
+        }
+    } *)
+Definition deallocate_frame {S : PageSize} {n : nat} 
+  (p : program_state) (alloc_addr : addr) (frame : PhysFrame S) :
+  option program_state :=
+  let* allocator := @read_allocator S n p alloc_addr in
+  
+  let* frame_idxx := @frame_idx S n p alloc_addr frame in
+  let (p1, frame_idx_addr) := alloc p (VUint63 frame_idxx) in
+  
+  if negb (get_bit (valid allocator) frame_idxx) then
+    None
+  else if negb (get_bit (allocated allocator) frame_idxx) then
+    None
+  else
+    let* p2 := @update_allocator_allocated S n p1 alloc_addr (set_bit (allocated allocator) frame_idxx false) in
+    let* p3 := dealloc p2 frame_idx_addr in
+    return p3.
+
 
 (** * Utility Functions *)
 
 (** Count valid frames *)
-Definition num_valid {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) : nat :=
-  count_ones (valid S n alloc).
+Definition num_valid {S : PageSize} {n : nat} 
+  (p : program_state) (alloc_addr : addr) : option nat :=
+  match @read_allocator S n p alloc_addr with
+  | Some alloc => Some (@count_ones n (valid alloc))
+  | None => None
+  end.
 
 (** Count allocated frames *)
-Definition num_allocated {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) : nat :=
-  count_ones (allocated S n alloc).
+Definition num_allocated {S : PageSize} {n : nat} 
+  (p : program_state) (alloc_addr : addr) : option nat :=
+  match @read_allocator S n p alloc_addr with
+  | Some alloc => Some (@count_ones n (allocated alloc))
+  | None => None
+  end.
 
 (** Count available frames *)
-Definition num_available {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) : nat :=
-  count_ones (get_available alloc).
-
-(** Check if a specific frame is allocated *)
-Definition is_frame_allocated {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) 
-                              (frame : PhysFrame S) : bool :=
-  match frame_to_idx alloc frame with
-  | Some idx => get_bit (allocated S n alloc) idx
-  | None => false
+Definition num_available {S : PageSize} {n : nat} 
+  (p : program_state) (alloc_addr : addr) : option nat :=
+  match @read_allocator S n p alloc_addr with
+  | Some alloc => Some (@count_ones n (get_available (allocated alloc) (valid alloc)))
+  | None => None
   end.
 
-(** Check if a specific frame is valid *)
-Definition is_frame_valid {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) 
-                          (frame : PhysFrame S) : bool :=
-  match frame_to_idx alloc frame with
-  | Some idx => get_bit (valid S n alloc) idx
-  | None => false
-  end.
-
-(** Create a new bitmap allocator with zero-initialized bitarrays *)
-Definition new_allocator {S : PageSize} (n : nat) (r : PhysFrameRange S) : BitmapAllocator S n :=
-  mkBitmapAllocator S n (make_bitarray n) (make_bitarray n) r.
+(** Initialize allocator with valid regions *)
+Definition init_allocator {S : PageSize} {n : nat}
+  (p : program_state) (alloc_addr : addr) 
+  (ranges_with_validity : list (PhysFrameRange S * bool)) : option program_state :=
+  fold_left (fun acc_p range_validity => 
+    match acc_p with
+    | Some p' => @mark_valid S n p' alloc_addr (fst range_validity) (snd range_validity)
+    | None => None
+    end) ranges_with_validity (Some p).
