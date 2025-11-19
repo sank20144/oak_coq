@@ -45,7 +45,7 @@ Definition allocator_wf {S : PageSize} {n : nat}
 (** Get available frames (valid AND not allocated) *)
 Definition get_available {n : nat} (allocated valid : BitArray n) : BitArray n :=
   bitand valid (bitnot allocated).
-  
+
 (** Translate: 
  fn frame(&self, frame_idx: usize) -> Option<PhysFrame<S>> {
         if self.range.end < self.range.start + frame_idx as u64 {
@@ -62,7 +62,7 @@ Program Definition frame {S : PageSize} {n : nat}
   if start_address S (end_frame S (range alloc)) <? start_address S (start_frame S (range alloc)) + (frame_idx * size S) then
     None
   else 
-    return (mkPhysFrame S (start_address S (start_frame S (range alloc))) _).
+    return (mkPhysFrame S ((start_address S (start_frame S (range alloc))) + (frame_idx * size S)) _).
 
 Next Obligation.
 Admitted.
