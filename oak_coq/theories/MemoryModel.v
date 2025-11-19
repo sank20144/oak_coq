@@ -12,19 +12,30 @@ From OC Require Import BitArr.
 (* Memory addresses *)
 Definition addr := nat.
 
-(* Values stored in memory  *)
+Record BitmapAllocator (S : PageSize) (n : nat) := mkBitmapAllocator {
+  allocated : BitArray n;
+  valid : BitArray n;
+  range : PhysFrameRange S;
+}.
+
+Arguments mkBitmapAllocator {S} {n}.
+Arguments allocated {S} {n}.
+Arguments valid {S} {n}.
+Arguments range {S} {n}.
+
+(* Values stored in memory *)
 Inductive value : Type :=
   | VBool : bool -> value
   | VNat : nat -> value
   | VUnit : value
-  
+
   | VPhysFrame : forall {S : PageSize}, PhysFrame S -> value
   | VPhysAddr : PhysAddr -> value
   | VUint63 : Uint63.int -> value
   | VBitArray : forall {n : nat}, BitArray n -> value
   | VPhysFrameRange : forall {S : PageSize}, PhysFrameRange S -> value
-  | VAllocator : forall {S : PageSize} {n : nat}, 
-      BitArray n -> BitArray n -> PhysFrameRange S -> value. (* allocated, valid, range *)
+  | VAllocator : forall {S : PageSize} {n : nat}, BitmapAllocator S n -> value.
+
 
 (* Memory cell containing value *)
 Record mem_cell : Type := mk_cell {
@@ -102,17 +113,26 @@ Definition read_phys_addr (p : program_state) (a : addr) : option PhysAddr :=
   | _ => None
   end.
 
+Definition write_phys_addr (p : program_state) (a : addr) (paddr : PhysAddr) : option program_state :=
+  write p a (VPhysAddr paddr).
+
 Definition read_bool (p : program_state) (a : addr) : option bool :=
   match read p a with
   | Some (VBool b) => Some b
   | _ => None
   end.
 
+Definition write_bool (p : program_state) (a : addr) (b : bool) : option program_state :=
+  write p a (VBool b).
+
 Definition read_nat (p : program_state) (a : addr) : option nat :=
   match read p a with
   | Some (VNat n) => Some n
   | _ => None
   end.
+
+Definition write_nat (p : program_state) (a : addr) (n : nat) : option program_state :=
+  write p a (VNat n).
 
 Definition read_uint63 (p : program_state) (a : addr) : option Uint63.int :=
   match read p a with
@@ -150,17 +170,16 @@ Definition write_frame_range {S : PageSize} (p : program_state) (a : addr) (rang
   write p a (VPhysFrameRange range).
 
 Definition read_allocator {S : PageSize} {n : nat} (p : program_state) (a : addr) : 
-  option (BitArray n * BitArray n * PhysFrameRange S) :=
+  option (BitmapAllocator S n) :=
   match read p a with
-  | Some (@VAllocator S' n' allocated valid range) =>
+  | Some (@VAllocator S' n' alloc) =>
       match Nat.eq_dec n' n with
       | left Hn =>
           match PageSize_eq_dec S' S with
           | left Hs =>
-              let allocated' := eq_rect n' (fun m => BitArray m) allocated n Hn in
-              let valid' := eq_rect n' (fun m => BitArray m) valid n Hn in
-              let range' := eq_rect S' (fun s => PhysFrameRange s) range S Hs in
-              Some (allocated', valid', range')
+              let alloc' := eq_rect n' (fun m => BitmapAllocator S' m) alloc n Hn in
+              let alloc'' := eq_rect S' (fun s => BitmapAllocator s n) alloc' S Hs in
+              Some alloc''
           | right _ => None
           end
       | right _ => None
@@ -169,21 +188,32 @@ Definition read_allocator {S : PageSize} {n : nat} (p : program_state) (a : addr
   end.
 
 Definition write_allocator {S : PageSize} {n : nat} (p : program_state) (a : addr) 
-  (allocated valid : BitArray n) (range : PhysFrameRange S) : option program_state :=
-  write p a (VAllocator allocated valid range).
+  (alloc : BitmapAllocator S n) : option program_state :=
+  write p a (VAllocator alloc).
 
-(* Update only the allocated bitmap of an allocator *)
+(** Update only the allocated bitmap of an allocator *)
 Definition update_allocator_allocated {S : PageSize} {n : nat} (p : program_state) (a : addr)
   (new_allocated : BitArray n) : option program_state :=
   match read_allocator p a with
-  | Some (_, valid, range) => @write_allocator S n p a new_allocated valid range
+  | Some alloc => 
+      let alloc' := @mkBitmapAllocator S n new_allocated (valid alloc) (range alloc) in
+      write_allocator p a alloc'
   | None => None
   end.
 
-(* Update only the valid bitmap of an allocator *)
+(** Update only the valid bitmap of an allocator *)
 Definition update_allocator_valid {S : PageSize} {n : nat} (p : program_state) (a : addr)
   (new_valid : BitArray n) : option program_state :=
   match read_allocator p a with
-  | Some (allocated, _, range) => @write_allocator S n p a allocated new_valid range
+  | Some alloc => 
+      let alloc' := @mkBitmapAllocator S n (allocated alloc) new_valid (range alloc) in
+      write_allocator p a alloc'
   | None => None
   end.
+
+(** Create a new bitmap allocator in memory *)
+Definition new_allocator {S : PageSize} (n : nat) 
+  (p : program_state) (r : PhysFrameRange S) : program_state * addr :=
+  let zero_bitmap := make_bitarray n in
+  let allocator := mkBitmapAllocator zero_bitmap zero_bitmap r in
+  alloc p (VAllocator allocator).
