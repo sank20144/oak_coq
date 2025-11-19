@@ -79,6 +79,14 @@ Definition alloc (p : program_state) (v : value) : program_state * addr :=
   let h' := heap_update (state_mem p) a cell in
   (mk_memory h' (S a), a).
 
+Definition dealloc (p : program_state) (a : addr) : option program_state :=
+  match heap_lookup (state_mem p) a with
+  | Some _ =>
+      let h' := filter (fun entry => negb (Nat.eqb (fst entry) a)) (state_mem p) in
+      Some (mk_memory h' (mem_next_addr p))
+  | None => None
+  end.
+
 Definition read (p : program_state) (a : addr) : option value :=
   match heap_lookup (state_mem p) a with
   | None => None
