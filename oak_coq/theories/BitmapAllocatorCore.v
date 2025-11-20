@@ -83,7 +83,7 @@ Definition frame_idx {S : PageSize} {n : nat}
   
   let* alloc := @read_allocator S n p alloc_addr in
   
-  if (start_address S frame <=? start_address S (start_frame S (range alloc))) 
+  if (start_address S frame <? start_address S (start_frame S (range alloc))) 
   || (start_address S (end_frame S (range alloc)) <? start_address S frame) then
     None
   else 
@@ -171,15 +171,15 @@ Definition deallocate_frame {S : PageSize} {n : nat}
   option program_state :=
   let* allocator := @read_allocator S n p alloc_addr in
   
-  let* frame_idxx := @frame_idx S n p alloc_addr frame in
-  let (p1, frame_idx_addr) := alloc p (VUint63 frame_idxx) in
+  let* frame_idx := @frame_idx S n p alloc_addr frame in
+  let (p1, frame_idx_addr) := alloc p (VUint63 frame_idx) in
   
-  if negb (get_bit (valid allocator) frame_idxx) then
+  if negb (get_bit (valid allocator) frame_idx) then
     None
-  else if negb (get_bit (allocated allocator) frame_idxx) then
+  else if negb (get_bit (allocated allocator) frame_idx) then
     None
   else
-    let* p2 := @update_allocator_allocated S n p1 alloc_addr (set_bit (allocated allocator) frame_idxx false) in
+    let* p2 := @update_allocator_allocated S n p1 alloc_addr (set_bit (allocated allocator) frame_idx false) in
     let* p3 := dealloc p2 frame_idx_addr in
     return p3.
 
