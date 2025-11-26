@@ -17,14 +17,14 @@ Notation "'let*' x ':=' e1 'in' e2" :=
    | Some x => e2
    | None => None
    end)
-  (at level 61, x pattern, e1 at next level, right associativity).
+  (at level 62, x pattern, e1 at next level, right associativity).
 
 Notation "'let*' ( x , y ) ':=' e1 'in' e2" :=
   (match e1 with
    | Some (x, y) => e2
    | None => None
    end)
-  (at level 61, x pattern, y pattern, e1 at next level, right associativity).
+  (at level 62, x pattern, y pattern, e1 at next level, right associativity).
 
 
 Notation "'return' e" := (Some e) (at level 60).
@@ -182,33 +182,6 @@ Definition deallocate_frame {S : PageSize} {n : nat}
     let* p2 := @update_allocator_allocated S n p1 alloc_addr (set_bit (allocated allocator) frame_idx false) in
     let* p3 := dealloc p2 frame_idx_addr in
     return p3.
-
-
-(** * Utility Functions *)
-
-(** Count valid frames *)
-Definition num_valid {S : PageSize} {n : nat} 
-  (p : program_state) (alloc_addr : addr) : option nat :=
-  match @read_allocator S n p alloc_addr with
-  | Some alloc => Some (@count_ones n (valid alloc))
-  | None => None
-  end.
-
-(** Count allocated frames *)
-Definition num_allocated {S : PageSize} {n : nat} 
-  (p : program_state) (alloc_addr : addr) : option nat :=
-  match @read_allocator S n p alloc_addr with
-  | Some alloc => Some (@count_ones n (allocated alloc))
-  | None => None
-  end.
-
-(** Count available frames *)
-Definition num_available {S : PageSize} {n : nat} 
-  (p : program_state) (alloc_addr : addr) : option nat :=
-  match @read_allocator S n p alloc_addr with
-  | Some alloc => Some (@count_ones n (get_available (allocated alloc) (valid alloc)))
-  | None => None
-  end.
 
 (** Initialize allocator with valid regions *)
 Definition init_allocator {S : PageSize} {n : nat}
