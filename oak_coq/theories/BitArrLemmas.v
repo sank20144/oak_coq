@@ -156,17 +156,17 @@ Proof.
 Qed.
 
 Lemma get_bit_set_bit_different : 
-  forall {n : nat} (bits : BitArray n) idx idx' value,
-    idx' < n * u64_bits ->
+  forall {n : nat} (bits : BitArray n) (idx idx' : Uint63.int) value,
+    Uint63.to_nat idx' < n * u64_bits ->
     idx <> idx' ->
     get_bit (set_bit bits idx value) idx' = get_bit bits idx'.
 Proof.
   intros n bits idx idx' value H_bound H_neq.
   unfold get_bit, set_bit.
   
-  destruct (idx <? n * u64_bits) eqn:H_idx_bound.
+  destruct (Uint63.to_nat idx <? n * u64_bits) eqn:H_idx_bound.
   
-  - assert (H_idx'_bound: idx' <? n * u64_bits = true).
+  - assert (H_idx'_bound: Uint63.to_nat idx' <? n * u64_bits = true).
     { apply Nat.ltb_lt. assumption. }
     rewrite H_idx'_bound.
   
@@ -174,26 +174,25 @@ Proof.
   
     + rewrite Z_to_bv_small.
       * rewrite Z.lor_spec.
-        assert (H_shift_bit: Z.testbit (Z.shiftl 1 (Z.of_nat idx)) (Z.of_nat idx') = false).
+        assert (H_shift_bit: Z.testbit (Z.shiftl 1 (Uint63.to_Z idx)) (Uint63.to_Z idx') = false).
         { 
-          rewrite Z.shiftl_spec; [|lia].
-          destruct (Z.eqb (Z.of_nat idx') (Z.of_nat idx)) eqn:Heq.
+          rewrite Z.shiftl_spec; [|apply to_Z_bounded].
+          destruct (Z.eqb (Uint63.to_Z idx') (Uint63.to_Z idx)) eqn:Heq.
           - apply Z.eqb_eq in Heq.
-            apply Nat2Z.inj in Heq.
+            assert (idx = idx') by (apply to_Z_inj; symmetry; exact Heq).
             contradiction H_neq.
-            congruence.
-          - assert (Z.of_nat idx' - Z.of_nat idx ≠ 0)%Z.
+          - assert (Uint63.to_Z idx' - Uint63.to_Z idx ≠ 0)%Z.
             {
               apply Z.eqb_neq in Heq.
               intro Hcontra.
-              assert (Z.of_nat idx' = Z.of_nat idx)%Z by lia.
+              assert (Uint63.to_Z idx' = Uint63.to_Z idx)%Z by lia.
               contradiction.
             }
-            destruct (Z.testbit 1 (Z.of_nat idx' - Z.of_nat idx)) eqn:Hbit.
+            destruct (Z.testbit 1 (Uint63.to_Z idx' - Uint63.to_Z idx)) eqn:Hbit.
             * exfalso.
-              assert (Z.of_nat idx' - Z.of_nat idx = 0)%Z.
+              assert (Uint63.to_Z idx' - Uint63.to_Z idx = 0)%Z.
               {
-                destruct (Z.of_nat idx' - Z.of_nat idx)%Z eqn:Hdiff; 
+                destruct (Uint63.to_Z idx' - Uint63.to_Z idx)%Z eqn:Hdiff; 
                 try reflexivity; simpl in Hbit; discriminate.
               }
               contradiction.
@@ -218,12 +217,13 @@ Proof.
              rewrite Z_of_N_of_nat in Hr.
              exact (proj2 Hr).
            }
-           assert (H_shift_bound: (1 ≪ Z.of_nat idx < 2 ^ Z.of_nat (n * u64_bits))%Z).
+           assert (H_shift_bound: (1 ≪ Uint63.to_Z idx < 2 ^ Z.of_nat (n * u64_bits))%Z).
            {
              rewrite Z.shiftl_1_l.
              apply Z.pow_lt_mono_r; try lia.
-             
            }
+             
+           apply Nat2Z.inj_lt in H_idx_bound.
            apply Z.bounded_iff_bits_nonneg; try lia.
            apply Z.lor_nonneg; split; [apply bv_unsigned_in_range | apply Z.shiftl_nonneg; lia].
            intros l Hl.
@@ -233,42 +233,43 @@ Proof.
              rewrite <- Z_of_N_of_nat in Hl.
              apply bv_unsigned_spec_high; exact Hl.
            }
-           assert (H_shift_false: Z.testbit (1 ≪ Z.of_nat idx) l = false).
+           assert (H_shift_false: Z.testbit (1 ≪ Uint63.to_Z idx) l = false).
            {
              rewrite Z.shiftl_spec; [|lia].
-             destruct (Z.eqb l (Z.of_nat idx)) eqn:Heq.
+             destruct (Z.eqb l (Uint63.to_Z idx)) eqn:Heq.
              - apply Z.eqb_eq in Heq. subst l.
-               apply Nat2Z.inj_lt in H_idx_bound. lia.
-             - destruct (Z.testbit 1 (l - Z.of_nat idx)) eqn:Hb; auto.
+               apply Nat2Z.inj_lt in H_idx_bound.
+               assert (Z.of_nat (Uint63.to_nat idx) = Uint63.to_Z idx) by (apply Z2Nat.id; apply to_Z_bounded).
+               lia.
+             - destruct (Z.testbit 1 (l - Uint63.to_Z idx)) eqn:Hb; auto.
                exfalso.
-               assert (l - Z.of_nat idx = 0)%Z by (destruct (l - Z.of_nat idx)%Z; auto; discriminate).
+               assert (l - Uint63.to_Z idx = 0)%Z by (destruct (l - Uint63.to_Z idx)%Z; auto; discriminate).
                apply Z.eqb_neq in Heq. lia.
            }
-           rewrite H_bits_false, H_shift_false. reflexivity.
-    
+            rewrite H_bits_false, H_shift_false.
+            reflexivity.
      + bv_simplify.
       rewrite bv_wrap_spec_low.
-      * rewrite Z.land_spec, Z.lnot_spec; [|lia].
-        assert (H_shift_bit: Z.testbit (Z.shiftl 1 (Z.of_nat idx)) (Z.of_nat idx') = false).
+      * rewrite Z.land_spec, Z.lnot_spec; [|apply to_Z_bounded].
+        assert (H_shift_bit: Z.testbit (Z.shiftl 1 (Uint63.to_Z idx)) (Uint63.to_Z idx') = false).
         { 
-          rewrite Z.shiftl_spec; [|lia].
-          destruct (Z.eqb (Z.of_nat idx') (Z.of_nat idx)) eqn:Heq.
+          rewrite Z.shiftl_spec; [|apply to_Z_bounded].
+          destruct (Z.eqb (Uint63.to_Z idx') (Uint63.to_Z idx)) eqn:Heq.
           - apply Z.eqb_eq in Heq.
-            apply Nat2Z.inj in Heq.
+            assert (idx = idx') by (apply to_Z_inj; symmetry; exact Heq).
             contradiction H_neq.
-            congruence.
-          - assert (Z.of_nat idx' - Z.of_nat idx ≠ 0)%Z.
+          - assert (Uint63.to_Z idx' - Uint63.to_Z idx ≠ 0)%Z.
             {
               apply Z.eqb_neq in Heq.
               intro Hcontra.
-              assert (Z.of_nat idx' = Z.of_nat idx)%Z by lia.
+              assert (Uint63.to_Z idx' = Uint63.to_Z idx)%Z by lia.
               contradiction.
             }
-            destruct (Z.testbit 1 (Z.of_nat idx' - Z.of_nat idx)) eqn:Hbit.
+            destruct (Z.testbit 1 (Uint63.to_Z idx' - Uint63.to_Z idx)) eqn:Hbit.
             * exfalso.
-              assert (Z.of_nat idx' - Z.of_nat idx = 0)%Z.
+              assert (Uint63.to_Z idx' - Uint63.to_Z idx = 0)%Z.
               {
-                destruct (Z.of_nat idx' - Z.of_nat idx)%Z eqn:Hdiff; 
+                destruct (Uint63.to_Z idx' - Uint63.to_Z idx)%Z eqn:Hdiff; 
                 try reflexivity; simpl in Hbit; discriminate.
               }
               contradiction.
@@ -279,11 +280,11 @@ Proof.
         rewrite andb_true_r.
         reflexivity.
       * split.
-        -- bv_solve.
+        -- apply to_Z_bounded.
         -- bv_solve.
   
- - assert (H_idx'_bound: idx' <? n * u64_bits = true).
-    { apply Nat.ltb_lt. assumption. }
+- assert (H_idx'_bound: Uint63.to_nat idx' <? n * u64_bits = true).
+  { apply Nat.ltb_lt. assumption. }
     rewrite H_idx'_bound.
     reflexivity.
 Qed.
