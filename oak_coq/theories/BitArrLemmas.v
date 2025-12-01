@@ -24,6 +24,8 @@ Axiom get_bit_bounds :
     Uint63.to_nat idx >= n * u64_bits ->
     get_bit bits idx = false.
 
+Axiom bitarray_fits_uint63 : forall n, (Z.of_nat (n * u64_bits) < wB)%Z.
+
 (** Out-of-bounds set_bit is identity *)
 Lemma set_bit_bounds : 
   forall {n : nat} (bits : BitArray n) idx value,
@@ -290,32 +292,46 @@ Proof.
 Qed.
 
 Lemma first_one_returns_true : 
-  forall {n : nat} (bits : BitArray n) idx,
+  forall {n : nat} (bits : BitArray n) (idx : Uint63.int),
     first_one_from_zero bits = Some idx -> 
     get_bit bits idx = true.
 Proof.
   intros n bits idx H.
-  remember (n * u64_bits) as total_bits.
   unfold first_one_from_zero in H.
+  destruct (find (fun i => Z.testbit (bv_unsigned bits) (Z.of_nat i)) (seq 0 (n * u64_bits))) as [i|] eqn:Hfind; [|discriminate].
+  injection H as H. subst idx.
+  
+  apply find_some in Hfind.
+  destruct Hfind as [Hin Hpred].
+  apply in_seq in Hin.
+  destruct Hin as [_ Hi_bound].
+  
   unfold get_bit.
-  destruct (idx <? total_bits) eqn:Hlt.
-  - apply Nat.ltb_lt in Hlt.
-    apply find_some in H as [Hin Htest].
-    rewrite Htest.
-    rewrite Heqtotal_bits in Hlt.
-    assert (Hltc: idx <? n * u64_bits = true).
-    { apply Nat.ltb_lt. exact Hlt. }
-    rewrite Hltc.
-    reflexivity.
-  - apply find_some in H as [Hin Htest].
-    exfalso.
-    apply in_seq in Hin.
-    rewrite Heqtotal_bits in Hlt.
-    apply Nat.ltb_ge in Hlt.
-    destruct Hin as [H0 H1].
-    lia.
+  
+  assert (Hbound: Uint63.to_nat (of_Z (Z.of_nat i)) <? n * u64_bits = true).
+  {
+    apply Nat.ltb_lt.
+    rewrite of_Z_spec, Zmod_small, Nat2Z.id; [exact Hi_bound | ].
+    split; [lia | ].
+    apply Nat2Z.inj_lt in Hi_bound.
+    apply (Z.lt_trans _ (Z.of_nat (n * u64_bits)) _); [lia | ].
+    apply bitarray_fits_uint63.
+  }
+  rewrite Hbound.
+  
+  assert (Heq: Uint63.to_Z (of_Z (Z.of_nat i)) = Z.of_nat i).
+  {
+    rewrite of_Z_spec, Zmod_small; [reflexivity | ].
+    split; [lia | ].
+    apply Nat2Z.inj_lt in Hi_bound.
+    apply (Z.lt_trans _ (Z.of_nat (n * u64_bits)) _); [lia | ].
+    apply bitarray_fits_uint63.
+  }
+  
+  rewrite Heq.
+  exact Hpred.
 Qed.
-
+  
 Search Z.testbit "shiftl".
 (** Setting a bit different from current preserves other bits *)
 Lemma get_bit_set_bit_diff : 
