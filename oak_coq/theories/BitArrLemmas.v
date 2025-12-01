@@ -18,11 +18,17 @@ Proof.
   induction n; simpl; auto.
 Qed.
 
-(** Out-of-bounds access returns false *)
-Axiom get_bit_bounds : 
-  forall {n : nat} (bits : BitArray n) (  idx : Uint63.int),
+Lemma get_bit_bounds : 
+  forall {n : nat} (bits : BitArray n) (idx : Uint63.int),
     Uint63.to_nat idx >= n * u64_bits ->
     get_bit bits idx = false.
+Proof.
+  intros n bits idx H_bound.
+  unfold get_bit.
+  destruct (Uint63.to_nat idx <? n * u64_bits) eqn:H_lt.
+  - apply Nat.ltb_lt in H_lt. lia.
+  - reflexivity.
+Qed.
 
 Axiom bitarray_fits_uint63 : forall n, (Z.of_nat (n * u64_bits) < wB)%Z.
 
