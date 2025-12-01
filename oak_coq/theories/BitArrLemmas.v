@@ -340,7 +340,7 @@ Lemma get_bit_set_bit_diff :
     get_bit (set_bit bits idx1 value) idx2 = get_bit bits idx2.
 Proof.
   intros n bits idx1 idx2 value H_neq.
-  destruct (idx2 <? n * u64_bits) eqn:Hidx2.
+  destruct (Uint63.to_nat idx2 <? n * u64_bits) eqn:Hidx2.
   - apply Nat.ltb_lt in Hidx2.
     apply get_bit_set_bit_different; auto.
   - apply Nat.ltb_ge in Hidx2.
@@ -351,14 +351,14 @@ Qed.
 
 (** Negation inverts each bit *)
 Lemma bitnot_get_bit : 
-  forall {n : nat} (bits : BitArray n) idx,
-    idx < n * u64_bits ->
+  forall {n : nat} (bits : BitArray n) (idx : Uint63.int),
+    Uint63.to_nat idx < n * u64_bits ->
     get_bit (bitnot bits) idx = negb (get_bit bits idx).
 Proof.
   intros n bits idx H_bound.
   unfold bitnot, get_bit.
   
-  assert (H_idx_lt: idx <? n * u64_bits = true) by (apply Nat.ltb_lt; exact H_bound).
+  assert (H_idx_lt: Uint63.to_nat idx <? n * u64_bits = true) by (apply Nat.ltb_lt; exact H_bound).
   rewrite H_idx_lt.
   
   rewrite bv_not_unsigned.
@@ -366,8 +366,13 @@ Proof.
   rewrite bv_wrap_spec_low.
   - rewrite Z.lnot_spec.
     + reflexivity.
-    + lia.
-  - bv_solve.
+    + apply to_Z_bounded.
+  - split.
+    * apply to_Z_bounded.
+    * rewrite Z_of_N_of_nat.
+      rewrite <- (Z2Nat.id (to_Z idx)) by apply to_Z_bounded.
+      apply Nat2Z.inj_lt.
+      exact H_bound.
 Qed.
 
 (** Bitwise AND operates pointwise *)
@@ -378,7 +383,7 @@ Proof.
   intros n a b idx.
   unfold bitand, get_bit.
   
-  destruct (idx <? n * u64_bits) eqn:H_bound.
+  destruct (Uint63.to_nat idx <? n * u64_bits) eqn:H_bound.
   - rewrite bv_and_unsigned.
     rewrite Z.land_spec.
     reflexivity.
@@ -443,13 +448,23 @@ Lemma count_ones_zero_all_false :
 Proof.
   intros n bits Hcount idx.
   unfold get_bit.
-  destruct (idx <? n * u64_bits) eqn:Hlt.
+  destruct (Uint63.to_nat idx <? n * u64_bits) eqn:Hlt.
   - apply Nat.ltb_lt in Hlt.
     unfold count_ones in Hcount.
     
-    apply count_ones_helper_zero_implies_all_false with (start := 0) (remaining := n * u64_bits) (acc := 0).
-    + exact Hcount.
-    + lia.
+    assert (H_eq: Z.testbit (bv_unsigned bits) (Z.of_nat (Uint63.to_nat idx)) = false).
+    {
+      apply count_ones_helper_zero_implies_all_false with (start := 0) (remaining := n * u64_bits) (acc := 0).
+      + exact Hcount.
+      + lia.
+    }
+    assert (H_simplify: Z.of_nat (Uint63.to_nat idx) = Uint63.to_Z idx).
+    {
+      apply Z2Nat.id.
+      apply to_Z_bounded.
+    }
+    rewrite H_simplify in H_eq.
+    exact H_eq.
     
   - reflexivity.
 Qed.
@@ -497,42 +512,3 @@ Proof.
     destruct (Z.testbit (bv_unsigned bits2) (Z.of_nat start)); apply IH;
     intros i Hi; apply Hext; lia.
 Qed.
-
-(* Splitting count_ones_helper at idx for set_bit from false to true *)
-Lemma count_ones_helper_set_bit_false_to_true_split :
-  forall {n : nat} (bits : BitArray n) (idx : nat) acc,
-    idx < n * u64_bits ->
-    get_bit bits idx = false ->
-    count_ones_helper (set_bit bits idx true) 0 (n * u64_bits) acc =
-      count_ones_helper bits 0 (n * u64_bits) acc + 1.
-Proof.
-  intros.
-  
-  
-  Admitted.
-
-
-(** Setting a bit to true increases the count of ones exactly by 1 *)
-Lemma set_bit_false_to_true_increases_count : 
-  forall {n : nat} (bits : BitArray n) (idx : nat),
-    idx < n * u64_bits ->
-    get_bit bits idx = false ->
-    count_ones (set_bit bits idx true) = count_ones bits + 1.
-Proof.
-  intros n bits idx Hbound Hfalse.
-  unfold count_ones.
-  rewrite count_ones_helper_set_bit_false_to_true_split with (idx := idx) (acc := 0) by auto.
-  now rewrite Nat.add_1_r.
-Qed.
-
-(** Setting a bit to false decreases the count of ones exactly by 1 *)
-Lemma set_bit_true_to_false_decreases_count : 
-  forall {n : nat} (bits : BitArray n) (idx : nat),
-    idx < n * u64_bits ->
-    get_bit bits idx = true ->
-    count_ones (set_bit bits idx false) = count_ones bits - 1.
-Proof.
-  intros n bits idx H_bound H_true.
-  unfold count_ones, set_bit, get_bit in *.
-  
-Admitted.
