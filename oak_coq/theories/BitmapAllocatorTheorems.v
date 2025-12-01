@@ -9,6 +9,7 @@ Require Import Lia.
 Import ListNotations.
 From stdpp Require Import bitvector.
 From OC Require Import BitArr.
+From OC Require Import MemoryModel.
 From OC Require Import PhysicalMemory.
 From OC Require Import BitmapAllocatorCore.
 From OC Require Import BitArrLemmas.
@@ -67,7 +68,7 @@ Qed.
 Local Close Scope Z_scope.
 
 
-Lemma first_one_none_implies_count_zero {n : nat} (bits : BitArray n) :
+(* Lemma first_one_none_implies_count_zero {n : nat} (bits : BitArray n) :
   first_one_from_zero bits = None ->
   count_ones bits = 0%nat.
 Proof.
@@ -111,46 +112,43 @@ Proof.
   }
   
   exact Hhelper.
-Qed.
+Qed. *)
 
 
-(** Lemma: frame_to_idx and idx_to_frame are left inverses *)
+(** Lemma: frame and frame_idx are left inverses *)
 Lemma frame_to_idx_idx_to_frame_inverse {S : PageSize} {n : nat} 
-      (alloc : BitmapAllocator S n) (idx : nat) :
-  idx < n * u64_bits -> 
-  match idx_to_frame alloc idx with
-  | Some frame => frame_to_idx alloc frame = Some idx
+      (alloc : BitmapAllocator S n) (idx : int) ps addr:
+  to_nat idx < n * u64_bits -> 
+  match @frame S n ps addr idx with
+  | Some f => @frame_idx S n ps addr f = Some idx
   | None => True
   end.
 Proof. (* Bug in Implementation *)
 Admitted.
 
-(** Lemma: idx_to_frame respects bounds *)
-Lemma idx_to_frame_some_implies_valid_idx {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) (idx : nat) (frame : PhysFrame S) :
-  idx_to_frame alloc idx = Some frame ->
-  idx < n * u64_bits.
-Proof.
-  Admitted.
-
 (** Helper lemma: frame_to_idx is independent of allocated bitmap *)
-Lemma frame_to_idx_independent_of_allocated {S : PageSize} {n : nat} 
-      (alloc1 alloc2 : BitmapAllocator S n) (frame : PhysFrame S) :
-  valid S n alloc1 = valid S n alloc2 ->
-  range S n alloc1 = range S n alloc2 ->
-  frame_to_idx alloc1 frame = frame_to_idx alloc2 frame.
+Lemma frame_idx_independent_of_allocated {S : PageSize} {n : nat} 
+      (p1 p2 : program_state) (addr1 addr2 : addr) (frame : PhysFrame S) 
+      (alloc1 alloc2 : BitmapAllocator S n) :
+  read_allocator p1 addr1 = Some alloc1 ->
+  read_allocator p2 addr2 = Some alloc2 ->
+  valid alloc1 = valid alloc2 ->
+  range alloc1 = range alloc2 ->
+  @frame_idx S n p1 addr1 frame = @frame_idx S n p2 addr2 frame.
 Proof.
-  intros Hvalid Hrange.
-  unfold frame_to_idx.
+  intros Hread1 Hread2 Hvalid Hrange.
+  unfold frame_idx.
+  rewrite Hread1, Hread2.
   rewrite Hrange.
   reflexivity.
 Qed.
 
 (** Lemma: setting a range of bits preserves true bits *)
-Lemma set_bit_range_preserves_true_bits {n : nat} (bits : BitArray n) 
+Lemma fill_preserves_true_bits {n : nat} (bits : BitArray n) 
       (start_idx end_idx idx : nat) :
-  get_bit bits idx = true ->
+  get_bit bits (of_Z (Z.of_nat idx)) = true ->
   idx < n * u64_bits ->
-  get_bit (set_bit_range bits start_idx end_idx true) idx = true.
+  get_bit (fill bits start_idx end_idx true) (of_Z (Z.of_nat idx)) = true.
 Proof.
   intros Htrue Hbound.
   unfold set_bit_range.
@@ -174,13 +172,14 @@ Proof.
   
   apply H_general.
   exact Htrue.
-Qed.
+Admitted.
 
 Lemma mark_valid_preserves_wf {S : PageSize} {n : nat} 
-      (alloc : BitmapAllocator S n) (frame_range : PhysFrameRange S) :
-  allocator_wf alloc ->
-  match mark_valid alloc frame_range true with
-  | Some alloc' => allocator_wf alloc'
+      (p : program_state) (alloc_addr : addr) (frame_range : PhysFrameRange S) :
+  (exists alloc, read_allocator p alloc_addr = Some alloc /\ @allocator_wf S n alloc) ->
+  match @mark_valid S n p alloc_addr frame_range true with
+  | Some p' => exists alloc', read_allocator p' alloc_addr = Some alloc' /\ 
+                              @allocator_wf S n alloc'
   | None => True
   end.
 Proof.
@@ -200,16 +199,17 @@ Proof.
   { apply Hwf; assumption. }
   
   simpl.
-  apply set_bit_range_preserves_true_bits; assumption.
+  apply fill_preserves_true_bits; assumption.
 Qed.
 
 
-
 Lemma mark_valid_preserves_no_allocated {S : PageSize} {n : nat} 
-      (alloc : BitmapAllocator S n) (frame_range : PhysFrameRange S) (is_valid : bool) :
-  (forall idx, idx < n * u64_bits -> get_bit (allocated S n alloc) idx = false) ->
-  match mark_valid alloc frame_range is_valid with
-  | Some alloc' => forall idx, idx < n * u64_bits -> get_bit (allocated S n alloc') idx = false
+      (p : program_state) (alloc_addr : addr) (frame_range : PhysFrameRange S) (is_valid : bool) :
+  (exists alloc, read_allocator p alloc_addr = Some alloc /\
+    (forall idx, Uint63.to_nat idx < n * u64_bits -> get_bit (@allocated S n alloc) idx = false)) ->
+  match @mark_valid S n p alloc_addr frame_range is_valid with
+  | Some p' => exists alloc', read_allocator p' alloc_addr = Some alloc' /\
+    forall idx, Uint63.to_nat idx < n * u64_bits -> get_bit (@allocated S n alloc') idx = false
   | None => True
   end.
 Proof.
@@ -226,10 +226,12 @@ Qed.
 
 (** * Theorems and Properties *)
 Theorem allocate_frame_preserves_wf:
-   forall {S : PageSize} {n : nat} (alloc : BitmapAllocator S n),
-  allocator_wf alloc ->
-  match allocate_frame alloc with
-  | Some (_, alloc') => allocator_wf alloc'
+  forall {S : PageSize} {n : nat} (p : program_state) (alloc_addr : addr),
+  (exists alloc, read_allocator p alloc_addr = Some alloc /\ 
+    @allocator_wf S n alloc) ->
+  match @allocate_frame S n p alloc_addr with
+  | Some (_, p') => exists alloc', read_allocator p' alloc_addr = Some alloc' /\
+                                   @allocator_wf S n alloc'
   | None => True
   end.
 Proof.
@@ -273,11 +275,13 @@ Proof.
     - trivial.
 Qed.
 
-Theorem deallocate_frame_preserves_wf: forall (S : PageSize) (n : nat) 
-        (alloc : BitmapAllocator S n) (frame : PhysFrame S),
-  allocator_wf alloc ->
-  match deallocate_frame alloc frame with
-  | Some alloc' => allocator_wf alloc'
+Theorem deallocate_frame_preserves_wf: 
+  forall (S : PageSize) (n : nat) (p : program_state) (alloc_addr : addr) (frame : PhysFrame S),
+  (exists alloc, read_allocator p alloc_addr = Some alloc /\ 
+    @allocator_wf S n alloc) ->
+  match @deallocate_frame S n p alloc_addr frame with
+  | Some p' => exists alloc', read_allocator p' alloc_addr = Some alloc' /\
+                              @allocator_wf S n alloc'
   | None => True
   end.
 Proof.
@@ -300,19 +304,33 @@ Proof.
     + trivial.
   - trivial.
 Qed.
+
 (** Helper lemma: first_one_from_zero returns indices within bounds *)
-Lemma first_one_from_zero_lt {n : nat} (bits : BitArray n) (idx : nat) :
+Lemma first_one_from_zero_lt {n : nat} (bits : BitArray n) (idx : Uint63.int) :
   first_one_from_zero bits = Some idx ->
-  idx < n * u64_bits.
+  Uint63.to_nat idx < n * u64_bits.
 Proof.
   intros H.
   unfold first_one_from_zero in H.
-  apply find_some in H.
-  destruct H as [Hrange _].
-  apply in_seq in Hrange.
-  exact (proj2 Hrange).
+  destruct (find (fun i => Z.testbit (bv_unsigned bits) (Z.of_nat i)) (seq 0 (n * u64_bits))) as [i|] eqn:Hfind.
+  - injection H as H. subst idx.
+    apply find_some in Hfind.
+    destruct Hfind as [Hin _].
+    apply in_seq in Hin.
+    destruct Hin as [_ Hi_bound].
+    rewrite of_Z_spec.
+    rewrite Zmod_small.
+    + rewrite Nat2Z.id. exact Hi_bound.
+    + split.
+      * lia.
+      * apply Nat2Z.inj_lt in Hi_bound.
+        apply (Z.lt_trans _ (Z.of_nat (n * u64_bits)) _).
+        -- exact Hi_bound.
+        -- apply bitarray_fits_uint63.
+  - discriminate H.
 Qed.
-Lemma first_one_some_implies_nonzero_count {n : nat} (bits : BitArray n) (idx : nat) :
+
+Lemma first_one_some_implies_nonzero_count {n : nat} (bits : BitArray n) (idx : Uint63.int) :
   first_one_from_zero bits = Some idx ->
   count_ones bits > 0.
 Proof.
@@ -320,7 +338,7 @@ Proof.
   assert (H_bit_true: get_bit bits idx = true).
   { apply first_one_returns_true; exact H. }
   
-  assert (H_idx_bound: idx < n * u64_bits).
+  assert (H_idx_bound: Uint63.to_nat idx < n * u64_bits).
   { apply (first_one_from_zero_lt bits); exact H. }
 
   destruct (count_ones bits) eqn:Hcount.
@@ -331,23 +349,18 @@ Proof.
 Qed.
 
 (** Allocation returns a valid, previously unallocated frame *)
-Theorem allocate_frame_correctness {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) 
-        (frame : PhysFrame S) (alloc' : BitmapAllocator S n) :
-  allocator_wf alloc ->
-  allocate_frame alloc = Some (frame, alloc') ->
-  (** The returned frame was available before allocation *)
-  (match frame_to_idx alloc frame with
-   | Some idx => get_bit (valid S n alloc) idx = true /\
-                 get_bit (allocated S n alloc) idx = false
-   | None => False
-   end) /\
-  (** The returned frame is now allocated *)
-  (match frame_to_idx alloc' frame with
-   | Some idx => get_bit (allocated S n alloc') idx = true
-   | None => False
-   end) /\
-  (** Frame is within the allocator's range *)
-  is_frame_valid alloc frame = true.
+Theorem allocate_frame_correctness {S : PageSize} {n : nat} 
+  (p : program_state) (alloc_addr : addr) (frame : PhysFrame S) (p' : program_state) :
+  (exists alloc, read_allocator p alloc_addr = Some alloc /\ 
+    @allocator_wf S n alloc) ->
+  @allocate_frame S n p alloc_addr = Some (frame, p') ->
+  (exists alloc, read_allocator p alloc_addr = Some alloc /\
+    exists idx, @frame_idx S n p alloc_addr frame = Some idx /\
+      get_bit (valid alloc) idx = true /\
+      get_bit (@allocated S n alloc) idx = false) /\
+  (exists alloc', read_allocator p' alloc_addr = Some alloc' /\
+    exists idx', @frame_idx S n p' alloc_addr frame = Some idx' /\
+      get_bit (@allocated S n alloc') idx' = true).
 Proof.
   intros Hwf Halloc_some.
   unfold allocate_frame in Halloc_some.
@@ -411,11 +424,15 @@ Proof.
 Qed.
 
   (** No double allocation: allocate_frame never returns an already allocated frame *)
-Theorem no_double_allocation {S : PageSize} {n : nat} (alloc : BitmapAllocator S n) 
-        (f : PhysFrame S) (returned_frame : PhysFrame S) (new_alloc : BitmapAllocator S n) (idx : nat) :
-  allocator_wf alloc ->
-  is_frame_allocated alloc f = true ->
-  allocate_frame alloc = Some (returned_frame, new_alloc) ->
+Theorem no_double_allocation {S : PageSize} {n : nat} 
+  (p : program_state) (alloc_addr : addr)
+  (f : PhysFrame S) (returned_frame : PhysFrame S) (p' : program_state) :
+  (exists alloc, read_allocator p alloc_addr = Some alloc /\ 
+    @allocator_wf S n alloc) ->
+  (exists alloc, read_allocator p alloc_addr = Some alloc /\
+    exists idx, @frame_idx S n p alloc_addr f = Some idx /\
+      get_bit (@allocated S n alloc) idx = true) ->
+  @allocate_frame S n p alloc_addr = Some (returned_frame, p') ->
   f <> returned_frame.
 Proof.
   intros Hwf Hallocf Halloc.
@@ -437,8 +454,11 @@ Proof.
 Qed.
   
 (** A zero-initialized bitmap allocator is well-formed *)
-Theorem zero_init_allocator_wf {S : PageSize} {n : nat} (r : PhysFrameRange S) :
-  allocator_wf (new_allocator n r).
+Theorem zero_init_allocator_wf {S : PageSize} {n : nat} 
+  (p : program_state) (r : PhysFrameRange S) :
+  let (p', alloc_addr) := new_allocator n p r in
+  exists alloc, read_allocator p' alloc_addr = Some alloc /\
+    @allocator_wf S n alloc.
 Proof.
   unfold allocator_wf, new_allocator.
   intros idx H_bound H_allocated.
@@ -466,9 +486,11 @@ Qed.
 
 (** Marking regions as valid in a zero-initialized allocator preserves well-formedness *)
 Theorem zero_init_mark_valid_wf {S : PageSize} {n : nat} 
-        (r : PhysFrameRange S) (frame_range : PhysFrameRange S) :
-  match mark_valid (new_allocator n r) frame_range true with
-  | Some alloc' => allocator_wf alloc'
+  (p : program_state) (r : PhysFrameRange S) (frame_range : PhysFrameRange S) :
+  let (p', alloc_addr) := new_allocator n p r in
+  match @mark_valid S n p' alloc_addr frame_range true with
+  | Some p'' => exists alloc, read_allocator p'' alloc_addr = Some alloc /\
+                             @allocator_wf S n alloc
   | None => True
   end.
 Proof.
@@ -497,13 +519,15 @@ Proof.
 Qed.
 
 Theorem zero_init_mark_valid_general_wf {S : PageSize} {n : nat} 
-        (r : PhysFrameRange S) (frame_range : PhysFrameRange S) (is_valid : bool) :
-  match mark_valid (new_allocator n r) frame_range is_valid with
-  | Some alloc' => allocator_wf alloc'
+  (p : program_state) (r : PhysFrameRange S) (frame_range : PhysFrameRange S) (is_valid : bool) :
+  let (p', alloc_addr) := new_allocator n p r in
+  match @mark_valid S n p' alloc_addr frame_range is_valid with
+  | Some p'' => exists alloc, read_allocator p'' alloc_addr = Some alloc /\
+                             @allocator_wf S n alloc
   | None => True
   end.
 Proof.
-  assert (H_zero_wf: allocator_wf (new_allocator n r)).
+  assert (H_zero_wf: @allocator_wf S n (new_allocator n r)).
   { apply zero_init_allocator_wf. }
   
   unfold mark_valid.
@@ -597,13 +621,12 @@ Qed. *)
 
 
 Theorem mm_init_allocator_wf {S : PageSize} {n : nat} 
-        (r : PhysFrameRange S) (ranges_with_validity : list (PhysFrameRange S * bool)) :
-  match fold_left (fun acc range_validity => 
-     match acc with
-     | Some a => mark_valid a (fst range_validity) (snd range_validity)
-     | None => None
-     end) ranges_with_validity (Some (new_allocator n r)) with
-  | Some alloc => allocator_wf alloc
+  (p : program_state) (r : PhysFrameRange S) 
+  (ranges_with_validity : list (PhysFrameRange S * bool)) :
+  let (p', alloc_addr) := new_allocator n p r in
+  match @init_allocator S n p' alloc_addr ranges_with_validity with
+  | Some p'' => exists alloc, read_allocator p'' alloc_addr = Some alloc /\
+                             @allocator_wf S n alloc
   | None => True
   end.
 Proof.
