@@ -35,11 +35,11 @@ Notation "'return' e" := (Some e) (at level 60).
 
 (** Well-formedness predicate for allocator state *)
 Definition allocator_wf {S : PageSize} {n : nat} 
-  (allocated valid : BitArray n) : Prop :=
+  (alloc : BitmapAllocator S n) : Prop :=
   forall idx, 
     (Uint63.to_nat idx) < n * u64_bits -> 
-    get_bit allocated idx = true -> 
-    get_bit valid idx = true.
+    get_bit (allocated alloc) idx = true -> 
+    get_bit (valid alloc) idx = true.
 
 
 (** Get available frames (valid AND not allocated) *)
