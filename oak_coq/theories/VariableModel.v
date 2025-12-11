@@ -4,6 +4,8 @@ Require Import Coq.Lists.List.
 Require Import Coq.Strings.String.
 Require Import Lia.
 Import ListNotations.
+From OC Require Import PhysicalMemory.
+From OC Require Import BitArr.
 
 (* Variable names *)
 Definition var_name := string.
@@ -21,8 +23,29 @@ Record lifetime : Type := mk_lifetime {
   lt_end : nat     (* When this lifetime ends (must be explicitly set) *)
 }.
 
-(* Abstract value type *)
-Parameter value : Type.
+Record BitmapAllocator (S : PageSize) (n : nat) := mkBitmapAllocator {
+  allocated : BitArray n;
+  valid : BitArray n;
+  range : PhysFrameRange S;
+}.
+
+Arguments mkBitmapAllocator {S} {n}.
+Arguments allocated {S} {n}.
+Arguments valid {S} {n}.
+Arguments range {S} {n}.
+
+(* Values stored in memory *)
+Inductive value : Type :=
+  | VBool : bool -> value
+  | VNat : nat -> value
+  | VUnit : value
+
+  | VPhysFrame : forall {S : PageSize}, PhysFrame S -> value
+  | VPhysAddr : PhysAddr -> value
+  | VUint63 : Uint63.int -> value
+  | VBitArray : forall {n : nat}, BitArray n -> value
+  | VPhysFrameRange : forall {S : PageSize}, PhysFrameRange S -> value
+  | VAllocator : forall {S : PageSize} {n : nat}, BitmapAllocator S n -> value.
 
 (* Variable ownership status *)
 Inductive var_ownership : Type :=
