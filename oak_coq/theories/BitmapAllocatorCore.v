@@ -70,7 +70,7 @@ Definition update_allocator_valid {S : PageSize} {n : nat}
   let new_alloc := mkBitmapAllocator (allocated alloc) new_valid (range alloc) in
   write_var p var (@VAllocator S n new_alloc).
 
-(** Create a new allocator - returns variable name to use *)
+(** Create a new allocator*)
 Definition new_allocator {S : PageSize} (n : nat) 
   (p : prog_state) (var : var_name) (r : PhysFrameRange S) (lt_end : nat) 
   : option (prog_state * addr) :=
