@@ -4,7 +4,9 @@ Require Import Coq.Bool.Bool.
 Require Import Coq.Lists.List.
 Require Import Lia.
 Require Import Coq.Numbers.Cyclic.Int63.Uint63.
+Require Import Coq.Strings.String.
 Import ListNotations.
+Open Scope string_scope.
 From OC Require Import PhysicalMemory.
 From OC Require Import BitArr.
 From OC Require Import VariableModel.
@@ -86,9 +88,12 @@ Definition new_allocator {S : PageSize} (n : nat)
         }
     } *)
 Program Definition frame {S : PageSize} {n : nat}
-  (p : prog_state) (var : var_name) (frame_idx : Uint63.int) 
+  (p : prog_state) (self : var_name) (frame_idx : Uint63.int)
   : option (PhysFrame S) :=
-  let* alloc := @read_allocator S n p var in
+  let ref_var := self ++ "_ref" in
+  let* p_with_ref := let_shared_ref p ref_var self 5 in
+  
+  let* alloc := @read_allocator S n p_with_ref ref_var in
   let frame_range := range alloc in
   let start_addr := start_address S (start_frame S frame_range) in
   let end_addr := start_address S (end_frame S frame_range) in
@@ -100,7 +105,6 @@ Program Definition frame {S : PageSize} {n : nat}
     return (mkPhysFrame S computed_addr _).
 Next Obligation.
 Admitted.
-
 
 (** Translate:
 fn frame_idx(&self, frame: PhysFrame<S>) -> Option<usize> {
@@ -114,18 +118,17 @@ fn frame_idx(&self, frame: PhysFrame<S>) -> Option<usize> {
         }
     } *)
 Definition frame_idx {S : PageSize} {n : nat}
-  (p : prog_state) (var : var_name) (frame : PhysFrame S) 
+  (p : prog_state) (self : var_name) (frame : PhysFrame S)
   : option Uint63.int :=
-  let* alloc := @read_allocator S n p var in
-  let frame_range := range alloc in
-  let start_addr := start_address S (start_frame S frame_range) in
-  let end_addr := start_address S (end_frame S frame_range) in
-  let frame_addr := start_address S frame in
+  let ref_var := self ++ "_ref" in
+  let* p_with_ref := let_shared_ref p ref_var self 5 in
   
-  if (frame_addr <? start_addr) || (end_addr <? frame_addr) then
+  let* alloc := @read_allocator S n p_with_ref ref_var in
+  
+  if (start_address S frame <? start_address S (start_frame S (range alloc))) || (start_address S (end_frame S (range alloc))  <? start_address S frame) then
     None
   else 
-    return ((frame_addr - start_addr) / size S).
+    return ((start_address S frame - start_address S (start_frame S (range alloc))) / size S).
 
 (** Helper to set multiple bits in a range *)
 Definition fill {n : nat} (bits : BitArray n) (start_idx end_idx : nat) (value : bool) 
@@ -150,20 +153,25 @@ pub fn mark_valid(&mut self, range: PhysFrameRange<S>, valid: bool) {
         }
     } *)
 Definition mark_valid {S : PageSize} {n : nat} 
-  (p : prog_state) (var : var_name) 
-  (frame_range : PhysFrameRange S) (is_valid : bool) 
+  (p : prog_state) (self : var_name) 
+  (frame_range : PhysFrameRange S) (is_valid : bool)
   : option prog_state :=
-  let* allocator := @read_allocator S n p var in
+  let ref_var := self ++ "_mut_ref" in
+  let* p_with_ref := let_mut_ref p ref_var self 5 in
   
-  let* start_idx := @frame_idx S n p var (start_frame S frame_range) in
-  let* end_idx := @frame_idx S n p var (end_frame S frame_range) in
+  let* allocator := @read_allocator S n p_with_ref ref_var in
+  
+  let* start_idx := @frame_idx S n p_with_ref ref_var (start_frame S frame_range) in
+  let* end_idx := @frame_idx S n p_with_ref ref_var (end_frame S frame_range) in
   
   let new_valid := fill (valid allocator) 
                        (Z.to_nat (to_Z start_idx)) 
                        (Z.to_nat (to_Z end_idx)) 
                        is_valid in
   
-  @update_allocator_valid S n p var new_valid.
+  let* p' := @update_allocator_valid S n p_with_ref ref_var new_valid in
+ 
+  drop_var p' ref_var.
 
 (** Translate:
 unsafe impl<S: PageSize, const N: usize> FrameAllocator<S> for BitmapAllocator<S, N> {
@@ -174,19 +182,22 @@ unsafe impl<S: PageSize, const N: usize> FrameAllocator<S> for BitmapAllocator<S
     }
 }*)
 Definition allocate_frame {S : PageSize} {n : nat} 
-  (p : prog_state) (var : var_name) 
+  (p : prog_state) (self : var_name)
   : option (PhysFrame S * prog_state) :=
-  let* allocator := @read_allocator S n p var in
+  let ref_var := self ++ "_mut_ref" in
+  let* p_with_ref := let_mut_ref p ref_var self 4 in
+  
+  let* allocator := @read_allocator S n p_with_ref ref_var in
 
   let available := get_available (allocated allocator) (valid allocator) in
   let* frame_idx := first_one_from_zero available in
   
   let new_allocated := set_bit (allocated allocator) frame_idx true in
-  let* p' := @update_allocator_allocated S n p var new_allocated in
+  let* p' := @update_allocator_allocated S n p_with_ref ref_var new_allocated in
   
-  let* frame := @frame S n p' var frame_idx in
-  
-  return (frame, p').
+  let* frame := @frame S n p' ref_var frame_idx in
+  let* p_final := drop_var p' ref_var in
+  return (frame, p_final).
 
 (** Translate:
 unsafe fn deallocate_frame(&mut self, frame: PhysFrame<S>) {
@@ -206,11 +217,13 @@ unsafe fn deallocate_frame(&mut self, frame: PhysFrame<S>) {
         }
     } *)
 Definition deallocate_frame {S : PageSize} {n : nat} 
-  (p : prog_state) (var : var_name) (frame : PhysFrame S)
+  (p : prog_state) (self : var_name) (frame : PhysFrame S)
   : option prog_state :=
-  let* allocator := @read_allocator S n p var in
+  let ref_var := self ++ "_mut_ref" in
+  let* p_with_ref := let_mut_ref p ref_var self 12 in
+  let* allocator := @read_allocator S n p_with_ref ref_var in
   
-  let* frame_idx := @frame_idx S n p var frame in
+  let* frame_idx := @frame_idx S n p_with_ref ref_var frame in
   
   if negb (get_bit (valid allocator) frame_idx) then
     None
@@ -218,7 +231,9 @@ Definition deallocate_frame {S : PageSize} {n : nat}
     None
   else
     let new_allocated := set_bit (allocated allocator) frame_idx false in
-    @update_allocator_allocated S n p var new_allocated.
+    let* p' := @update_allocator_allocated S n p_with_ref ref_var new_allocated in
+
+    drop_var p' ref_var.
 
 (** Initialize allocator with valid regions *)
 Definition init_allocator {S : PageSize} {n : nat}
@@ -234,19 +249,3 @@ Definition init_allocator {S : PageSize} {n : nat}
     end) 
   ranges_with_validity 
   (Some p).
-
-(** Helper to check if frame is valid *)
-Definition is_frame_valid {S : PageSize} {n : nat}
-  (p : prog_state) (var : var_name) (frame : PhysFrame S) 
-  : option bool :=
-  let* allocator := @read_allocator S n p var in
-  let* idx := @frame_idx S n p var frame in
-  return (get_bit (valid allocator) idx).
-
-(** Helper to check if frame is allocated *)
-Definition is_frame_allocated {S : PageSize} {n : nat}
-  (p : prog_state) (var : var_name) (frame : PhysFrame S) 
-  : option bool :=
-  let* allocator := @read_allocator S n p var in
-  let* idx := @frame_idx S n p var frame in
-  return (get_bit (allocated allocator) idx).
