@@ -30,34 +30,38 @@ Notation "'let*' ( x , y ) ':=' e1 'in' e2" :=
 Notation "'return' e" := (Some e) (at level 60).
 
 (** Well-formedness predicate for allocator state *)
-Definition allocator_wf {S : PageSize} {n : nat} 
+Definition allocator_wf {S : PageSize} {n : Uint63.int} 
   (alloc : BitmapAllocator S n) : Prop :=
   forall idx, 
-    (Uint63.to_nat idx) < n * u64_bits -> 
+    (Uint63.to_nat idx) < (to_nat n) * u64_bits -> 
     get_bit (allocated alloc) idx = true -> 
     get_bit (valid alloc) idx = true.
 
 (** Get available frames (valid AND not allocated) *)
-Definition get_available {n : nat} (allocated valid : BitArray n) : BitArray n :=
+Definition get_available {n : Uint63.int} (allocated valid : BitArray n) : BitArray n :=
   bitand valid (bitnot allocated).
 
 (** Read allocator from a variable *)
-Definition read_allocator {S : PageSize} {n : nat} 
+Definition read_allocator {S : PageSize} {n : Uint63.int} 
   (p : prog_state) (var : var_name) : option (BitmapAllocator S n) :=
   match read_var p var with
   | Some (@VAllocator S' n' alloc) => 
-      match PageSize_eq_dec S S', Nat.eq_dec n n' with
-      | left Seq, left neq => 
-          let alloc' := eq_rect n' (fun n => BitmapAllocator S' n) alloc n (eq_sym neq) in
-          let alloc'' := eq_rect S' (fun S => BitmapAllocator S n) alloc' S (eq_sym Seq) in
-          Some alloc''
-      | _, _ => None
+      match PageSize_eq_dec S S' with
+      | left Seq => 
+          match Uint63.eqb n n' as b return (b = Uint63.eqb n n' -> _) with
+          | true => fun (Heq : true = Uint63.eqb n n') =>
+              let alloc' := eq_rect n' (fun n => BitmapAllocator S' n) alloc n (eq_sym (proj1 (Uint63.eqb_spec n n') (eq_sym Heq))) in
+              let alloc'' := eq_rect S' (fun S => BitmapAllocator S n) alloc' S (eq_sym Seq) in
+              Some alloc''
+          | false => fun _ => None
+          end eq_refl
+      | right _ => None
       end
   | _ => None
   end.
 
 (** Update allocator's allocated bitmap *)
-Definition update_allocator_allocated {S : PageSize} {n : nat}
+Definition update_allocator_allocated {S : PageSize} {n : Uint63.int}
   (p : prog_state) (var : var_name) (new_allocated : BitArray n) 
   : option prog_state :=
   let* alloc := @read_allocator S n p var in
@@ -65,7 +69,7 @@ Definition update_allocator_allocated {S : PageSize} {n : nat}
   write_var p var (@VAllocator S n new_alloc).
 
 (** Update allocator's valid bitmap *)
-Definition update_allocator_valid {S : PageSize} {n : nat}
+Definition update_allocator_valid {S : PageSize} {n : Uint63.int}
   (p : prog_state) (var : var_name) (new_valid : BitArray n) 
   : option prog_state :=
   let* alloc := @read_allocator S n p var in
@@ -73,7 +77,7 @@ Definition update_allocator_valid {S : PageSize} {n : nat}
   write_var p var (@VAllocator S n new_alloc).
 
 (** Create a new allocator*)
-Definition new_allocator {S : PageSize} (n : nat) 
+Definition new_allocator {S : PageSize} (n : Uint63.int) 
   (p : prog_state) (var : var_name) (r : PhysFrameRange S) (lt_end : nat) 
   : option (prog_state * addr) :=
   let alloc := mkBitmapAllocator (make_bitarray n) (make_bitarray n) r in
@@ -87,7 +91,7 @@ Definition new_allocator {S : PageSize} (n : nat)
             Some(self.range.start + frame_idx as u64)
         }
     } *)
-Program Definition frame {S : PageSize} {n : nat}
+Program Definition frame {S : PageSize} {n : Uint63.int}
   (p : prog_state) (self : var_name) (frame_idx : Uint63.int)
   : option (PhysFrame S) :=
   let ref_var := self ++ "_ref" in
@@ -117,7 +121,7 @@ fn frame_idx(&self, frame: PhysFrame<S>) -> Option<usize> {
             )
         }
     } *)
-Definition frame_idx {S : PageSize} {n : nat}
+Definition frame_idx {S : PageSize} {n : Uint63.int}
   (p : prog_state) (self : var_name) (frame : PhysFrame S)
   : option Uint63.int :=
   let ref_var := self ++ "_ref" in
@@ -131,7 +135,7 @@ Definition frame_idx {S : PageSize} {n : nat}
     return ((start_address S frame - start_address S (start_frame S (range alloc))) / size S).
 
 (** Helper to set multiple bits in a range *)
-Definition fill {n : nat} (bits : BitArray n) (start_idx end_idx : nat) (value : bool) 
+Definition fill {n : Uint63.int} (bits : BitArray n) (start_idx end_idx : nat) (value : bool) 
   : BitArray n :=
   fold_left 
     (fun acc idx => set_bit acc idx value) 
@@ -152,7 +156,7 @@ pub fn mark_valid(&mut self, range: PhysFrameRange<S>, valid: bool) {
             );
         }
     } *)
-Definition mark_valid {S : PageSize} {n : nat} 
+Definition mark_valid {S : PageSize} {n : Uint63.int} 
   (p : prog_state) (self : var_name) 
   (frame_range : PhysFrameRange S) (is_valid : bool)
   : option prog_state :=
@@ -168,8 +172,8 @@ Definition mark_valid {S : PageSize} {n : nat}
                        (Z.to_nat (to_Z start_idx)) 
                        (Z.to_nat (to_Z end_idx)) 
                        is_valid in
-  
-  let* p' := @update_allocator_valid S n p_with_ref ref_var new_valid in
+  let new_alloc := mkBitmapAllocator (allocated allocator) new_valid (range allocator) in
+  let* p' := @write_var p_with_ref ref_var (@VAllocator S n new_alloc) in
  
   drop_var p' ref_var.
 
@@ -181,7 +185,7 @@ unsafe impl<S: PageSize, const N: usize> FrameAllocator<S> for BitmapAllocator<S
         self.frame(frame_idx)
     }
 }*)
-Definition allocate_frame {S : PageSize} {n : nat} 
+Definition allocate_frame {S : PageSize} {n : Uint63.int} 
   (p : prog_state) (self : var_name)
   : option (PhysFrame S * prog_state) :=
   let ref_var := self ++ "_mut_ref" in
@@ -216,7 +220,7 @@ unsafe fn deallocate_frame(&mut self, frame: PhysFrame<S>) {
             );
         }
     } *)
-Definition deallocate_frame {S : PageSize} {n : nat} 
+Definition deallocate_frame {S : PageSize} {n : Uint63.int} 
   (p : prog_state) (self : var_name) (frame : PhysFrame S)
   : option prog_state :=
   let ref_var := self ++ "_mut_ref" in
@@ -236,7 +240,7 @@ Definition deallocate_frame {S : PageSize} {n : nat}
     drop_var p' ref_var.
 
 (** Initialize allocator with valid regions *)
-Definition init_allocator {S : PageSize} {n : nat}
+Definition init_allocator {S : PageSize} {n : Uint63.int}
   (p : prog_state) (var : var_name) 
   (ranges_with_validity : list (PhysFrameRange S * bool)) 
   : option prog_state :=
