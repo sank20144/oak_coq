@@ -23,7 +23,7 @@ Record lifetime : Type := mk_lifetime {
   lt_end : nat     (* When this lifetime ends (must be explicitly set) *)
 }.
 
-Record BitmapAllocator (S : PageSize) (n : nat) := mkBitmapAllocator {
+Record BitmapAllocator (S : PageSize) (n : Uint63.int) := mkBitmapAllocator {
   allocated : BitArray n;
   valid : BitArray n;
   range : PhysFrameRange S;
@@ -43,9 +43,9 @@ Inductive value : Type :=
   | VPhysFrame : forall {S : PageSize}, PhysFrame S -> value
   | VPhysAddr : PhysAddr -> value
   | VUint63 : Uint63.int -> value
-  | VBitArray : forall {n : nat}, BitArray n -> value
+  | VBitArray : forall {n : Uint63.int}, BitArray n -> value
   | VPhysFrameRange : forall {S : PageSize}, PhysFrameRange S -> value
-  | VAllocator : forall {S : PageSize} {n : nat}, BitmapAllocator S n -> value.
+  | VAllocator : forall {S : PageSize} {n : Uint63.int}, BitmapAllocator S n -> value.
 
 (* Variable ownership status *)
 Inductive var_ownership : Type :=
