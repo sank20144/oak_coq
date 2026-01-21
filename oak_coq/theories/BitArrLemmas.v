@@ -19,42 +19,42 @@ Proof.
 Qed.
 
 Lemma get_bit_bounds : 
-  forall {n : nat} (bits : BitArray n) (idx : Uint63.int),
-    Uint63.to_nat idx >= n * u64_bits ->
+  forall {n : Uint63.int} (bits : BitArray n) (idx : Uint63.int),
+    Uint63.to_nat idx >= (to_nat n) * u64_bits ->
     get_bit bits idx = false.
 Proof.
   intros n bits idx H_bound.
   unfold get_bit.
-  destruct (Uint63.to_nat idx <? n * u64_bits) eqn:H_lt.
+  destruct (Uint63.to_nat idx <? (to_nat n) * u64_bits) eqn:H_lt.
   - apply Nat.ltb_lt in H_lt. lia.
   - reflexivity.
 Qed.
 
-Axiom bitarray_fits_uint63 : forall n, (Z.of_nat (n * u64_bits) < wB)%Z.
+Axiom bitarray_fits_uint63 : forall n, (Z.of_nat ((to_nat n) * u64_bits) < wB)%Z.
 
 (** Out-of-bounds set_bit is identity *)
 Lemma set_bit_bounds : 
-  forall {n : nat} (bits : BitArray n) idx value,
-    Uint63.to_nat idx >= n * u64_bits ->
+  forall {n : Uint63.int} (bits : BitArray n) idx value,
+    Uint63.to_nat idx >= (to_nat n) * u64_bits ->
     set_bit bits idx value = bits.
 Proof.
   intros n bits idx value H_bound.
   unfold set_bit.
-  destruct (Uint63.to_nat idx <? n * u64_bits) eqn:H_lt.
+  destruct (Uint63.to_nat idx <? (to_nat n) * u64_bits) eqn:H_lt.
   - rewrite Nat.ltb_lt in H_lt. lia.
   - reflexivity.
 Qed.
 
 (** Setting a bit returns that value when read *)
 Lemma get_bit_set_bit_same : 
-  forall {n : nat} (bits : BitArray n) idx value,
-    Uint63.to_nat idx < n * u64_bits ->
+  forall {n : Uint63.int} (bits : BitArray n) idx value,
+    Uint63.to_nat idx < (to_nat n) * u64_bits ->
     get_bit (set_bit bits idx value) idx = value.
 Proof.
   intros n bits idx value H_bound.
   unfold get_bit, set_bit.
   
-  assert (H_lt: Uint63.to_nat idx <? n * u64_bits = true).
+  assert (H_lt: Uint63.to_nat idx <? (to_nat n) * u64_bits = true).
   { apply Nat.ltb_lt. exact H_bound. }
   
   rewrite H_lt.
@@ -72,15 +72,15 @@ Proof.
             ++ apply bv_unsigned_in_range.
             ++ apply Z.shiftl_nonneg. lia.
       * unfold bv_modulus.
-        assert (H_bits_bound: (bv_unsigned bits < 2 ^ Z.of_nat (n * u64_bits))%Z).
+        assert (H_bits_bound: (bv_unsigned bits < 2 ^ Z.of_nat ((to_nat n) * u64_bits))%Z).
         {
-          pose proof (bv_unsigned_in_range (N.of_nat (n * u64_bits)) bits) as Hr.
+          pose proof (bv_unsigned_in_range (N.of_nat ((to_nat n) * u64_bits)) bits) as Hr.
           unfold bv_modulus in Hr.
           simpl in Hr.
           rewrite Z_of_N_of_nat in Hr.
           exact (proj2 Hr).
         }
-        assert (H_shift_bound: (1 ≪ Uint63.to_Z idx < 2 ^ Z.of_nat (n * u64_bits))%Z).
+        assert (H_shift_bound: (1 ≪ Uint63.to_Z idx < 2 ^ Z.of_nat ((to_nat n) * u64_bits))%Z).
         {
           rewrite Z.shiftl_1_l.
           apply Z.pow_lt_mono_r.
@@ -89,7 +89,7 @@ Proof.
           - bv_solve.
           
         }
-         assert (H_lor_bound: (Z.lor (bv_unsigned bits) (1 ≪ Uint63.to_Z idx) < 2 ^ Z.of_nat (n * u64_bits))%Z).
+         assert (H_lor_bound: (Z.lor (bv_unsigned bits) (1 ≪ Uint63.to_Z idx) < 2 ^ Z.of_nat ((to_nat n) * u64_bits))%Z).
         {
           apply Z.bounded_iff_bits_nonneg.
           - lia.
@@ -134,7 +134,7 @@ Proof.
             rewrite H_bits_zero, H_shift_zero.
             reflexivity.
         }
-        replace (Z.of_N (N.of_nat (n * u64_bits))) with (Z.of_nat (n * u64_bits)).
+        replace (Z.of_N (N.of_nat ((to_nat n) * u64_bits))) with (Z.of_nat ((to_nat n) * u64_bits)).
         -- exact H_lor_bound.
         -- bv_solve.
     
@@ -164,17 +164,17 @@ Proof.
 Qed.
 
 Lemma get_bit_set_bit_different : 
-  forall {n : nat} (bits : BitArray n) (idx idx' : Uint63.int) value,
-    Uint63.to_nat idx' < n * u64_bits ->
+  forall {n : Uint63.int} (bits : BitArray n) (idx idx' : Uint63.int) value,
+    Uint63.to_nat idx' < (to_nat n) * u64_bits ->
     idx <> idx' ->
     get_bit (set_bit bits idx value) idx' = get_bit bits idx'.
 Proof.
   intros n bits idx idx' value H_bound H_neq.
   unfold get_bit, set_bit.
   
-  destruct (Uint63.to_nat idx <? n * u64_bits) eqn:H_idx_bound.
+  destruct (Uint63.to_nat idx <? (to_nat n) * u64_bits) eqn:H_idx_bound.
   
-  - assert (H_idx'_bound: Uint63.to_nat idx' <? n * u64_bits = true).
+  - assert (H_idx'_bound: Uint63.to_nat idx' <? (to_nat n) * u64_bits = true).
     { apply Nat.ltb_lt. assumption. }
     rewrite H_idx'_bound.
   
@@ -212,20 +212,20 @@ Proof.
       * split.
         -- apply Z.lor_nonneg.
            split.
-           ++ pose proof (bv_unsigned_in_range (N.of_nat (n * u64_bits)) bits) as Hr.
+           ++ pose proof (bv_unsigned_in_range (N.of_nat ((to_nat n) * u64_bits)) bits) as Hr.
               exact (proj1 Hr).
            ++ apply Z.shiftl_nonneg; lia.
         -- unfold bv_modulus.
            rewrite Z_of_N_of_nat.
            apply Nat.ltb_lt in H_idx_bound.
-           assert (H_bits_bound: (bv_unsigned bits < 2 ^ Z.of_nat (n * u64_bits))%Z).
+           assert (H_bits_bound: (bv_unsigned bits < 2 ^ Z.of_nat ((to_nat n) * u64_bits))%Z).
            {
-             pose proof (bv_unsigned_in_range (N.of_nat (n * u64_bits)) bits) as Hr.
+             pose proof (bv_unsigned_in_range (N.of_nat ((to_nat n) * u64_bits)) bits) as Hr.
              unfold bv_modulus in Hr.
              rewrite Z_of_N_of_nat in Hr.
              exact (proj2 Hr).
            }
-           assert (H_shift_bound: (1 ≪ Uint63.to_Z idx < 2 ^ Z.of_nat (n * u64_bits))%Z).
+           assert (H_shift_bound: (1 ≪ Uint63.to_Z idx < 2 ^ Z.of_nat ((to_nat n) * u64_bits))%Z).
            {
              rewrite Z.shiftl_1_l.
              apply Z.pow_lt_mono_r; try lia.
@@ -291,20 +291,20 @@ Proof.
         -- apply to_Z_bounded.
         -- bv_solve.
   
-- assert (H_idx'_bound: Uint63.to_nat idx' <? n * u64_bits = true).
+- assert (H_idx'_bound: Uint63.to_nat idx' <? (to_nat n) * u64_bits = true).
   { apply Nat.ltb_lt. assumption. }
     rewrite H_idx'_bound.
     reflexivity.
 Qed.
 
 Lemma first_one_returns_true : 
-  forall {n : nat} (bits : BitArray n) (idx : Uint63.int),
+  forall {n : Uint63.int} (bits : BitArray n) (idx : Uint63.int),
     first_one_from_zero bits = Some idx -> 
     get_bit bits idx = true.
 Proof.
   intros n bits idx H.
   unfold first_one_from_zero in H.
-  destruct (find (fun i => Z.testbit (bv_unsigned bits) (Z.of_nat i)) (seq 0 (n * u64_bits))) as [i|] eqn:Hfind; [|discriminate].
+  destruct (find (fun i => Z.testbit (bv_unsigned bits) (Z.of_nat i)) (seq 0 ((to_nat n) * u64_bits))) as [i|] eqn:Hfind; [|discriminate].
   injection H as H. subst idx.
   
   apply find_some in Hfind.
@@ -314,13 +314,13 @@ Proof.
   
   unfold get_bit.
   
-  assert (Hbound: Uint63.to_nat (of_Z (Z.of_nat i)) <? n * u64_bits = true).
+  assert (Hbound: Uint63.to_nat (of_Z (Z.of_nat i)) <? (to_nat n) * u64_bits = true).
   {
     apply Nat.ltb_lt.
     rewrite of_Z_spec, Zmod_small, Nat2Z.id; [exact Hi_bound | ].
     split; [lia | ].
     apply Nat2Z.inj_lt in Hi_bound.
-    apply (Z.lt_trans _ (Z.of_nat (n * u64_bits)) _); [lia | ].
+    apply (Z.lt_trans _ (Z.of_nat ((to_nat n) * u64_bits)) _); [lia | ].
     apply bitarray_fits_uint63.
   }
   rewrite Hbound.
@@ -330,7 +330,7 @@ Proof.
     rewrite of_Z_spec, Zmod_small; [reflexivity | ].
     split; [lia | ].
     apply Nat2Z.inj_lt in Hi_bound.
-    apply (Z.lt_trans _ (Z.of_nat (n * u64_bits)) _); [lia | ].
+    apply (Z.lt_trans _ (Z.of_nat ((to_nat n) * u64_bits)) _); [lia | ].
     apply bitarray_fits_uint63.
   }
   
@@ -341,12 +341,12 @@ Qed.
 Search Z.testbit "shiftl".
 (** Setting a bit different from current preserves other bits *)
 Lemma get_bit_set_bit_diff : 
-  forall {n : nat} (bits : BitArray n) idx1 idx2 value,
+  forall {n : Uint63.int} (bits : BitArray n) idx1 idx2 value,
     idx1 <> idx2 ->
     get_bit (set_bit bits idx1 value) idx2 = get_bit bits idx2.
 Proof.
   intros n bits idx1 idx2 value H_neq.
-  destruct (Uint63.to_nat idx2 <? n * u64_bits) eqn:Hidx2.
+  destruct (Uint63.to_nat idx2 <? (to_nat n) * u64_bits) eqn:Hidx2.
   - apply Nat.ltb_lt in Hidx2.
     apply get_bit_set_bit_different; auto.
   - apply Nat.ltb_ge in Hidx2.
@@ -357,14 +357,14 @@ Qed.
 
 (** Negation inverts each bit *)
 Lemma bitnot_get_bit : 
-  forall {n : nat} (bits : BitArray n) (idx : Uint63.int),
-    Uint63.to_nat idx < n * u64_bits ->
+  forall {n : Uint63.int} (bits : BitArray n) (idx : Uint63.int),
+    Uint63.to_nat idx < (to_nat n) * u64_bits ->
     get_bit (bitnot bits) idx = negb (get_bit bits idx).
 Proof.
   intros n bits idx H_bound.
   unfold bitnot, get_bit.
   
-  assert (H_idx_lt: Uint63.to_nat idx <? n * u64_bits = true) by (apply Nat.ltb_lt; exact H_bound).
+  assert (H_idx_lt: Uint63.to_nat idx <? (to_nat n) * u64_bits = true) by (apply Nat.ltb_lt; exact H_bound).
   rewrite H_idx_lt.
   
   rewrite bv_not_unsigned.
@@ -383,13 +383,13 @@ Qed.
 
 (** Bitwise AND operates pointwise *)
 Lemma bitand_get_bit : 
-  forall {n : nat} (a b : BitArray n) idx,
+  forall {n : Uint63.int} (a b : BitArray n) idx,
     get_bit (bitand a b) idx = get_bit a idx && get_bit b idx.
 Proof.
   intros n a b idx.
   unfold bitand, get_bit.
   
-  destruct (Uint63.to_nat idx <? n * u64_bits) eqn:H_bound.
+  destruct (Uint63.to_nat idx <? (to_nat n) * u64_bits) eqn:H_bound.
   - rewrite bv_and_unsigned.
     rewrite Z.land_spec.
     reflexivity.
@@ -398,7 +398,7 @@ Proof.
 Qed.
 
 Lemma count_ones_helper_monotonic :
-  forall {n : nat} (bits : BitArray n) start remaining acc,
+  forall {n : Uint63.int} (bits : BitArray n) start remaining acc,
     count_ones_helper bits start remaining acc >= acc.
 Proof.
   intros n bits start remaining acc.
@@ -414,7 +414,7 @@ Proof.
 Qed.
 
 Lemma count_ones_helper_zero_implies_all_false :
-  forall {n : nat} (bits : BitArray n) start remaining acc,
+  forall {n : Uint63.int} (bits : BitArray n) start remaining acc,
     count_ones_helper bits start remaining acc = acc ->
     forall i, start <= i < start + remaining ->
     Z.testbit (bv_unsigned bits) (Z.of_nat i) = false.
@@ -449,18 +449,18 @@ Qed.
 
 (** If count is 0, all bits are false *)
 Lemma count_ones_zero_all_false : 
-  forall {n : nat} (bits : BitArray n),
+  forall {n : Uint63.int} (bits : BitArray n),
     count_ones bits = 0 -> forall idx, get_bit bits idx = false.
 Proof.
   intros n bits Hcount idx.
   unfold get_bit.
-  destruct (Uint63.to_nat idx <? n * u64_bits) eqn:Hlt.
+  destruct (Uint63.to_nat idx <? (to_nat n) * u64_bits) eqn:Hlt.
   - apply Nat.ltb_lt in Hlt.
     unfold count_ones in Hcount.
     
     assert (H_eq: Z.testbit (bv_unsigned bits) (Z.of_nat (Uint63.to_nat idx)) = false).
     {
-      apply count_ones_helper_zero_implies_all_false with (start := 0) (remaining := n * u64_bits) (acc := 0).
+      apply count_ones_helper_zero_implies_all_false with (start := 0) (remaining := (to_nat n) * u64_bits) (acc := 0).
       + exact Hcount.
       + lia.
     }
@@ -476,7 +476,7 @@ Proof.
 Qed.
 
 Lemma count_ones_helper_split :
-  forall {n : nat} (bits : BitArray n) start1 len1 len2 acc,
+  forall {n : Uint63.int} (bits : BitArray n) start1 len1 len2 acc,
     count_ones_helper bits start1 (len1 + len2) acc =
     count_ones_helper bits (start1 + len1) len2 
       (count_ones_helper bits start1 len1 acc).
@@ -492,8 +492,8 @@ Proof.
 Qed.
 
 Lemma count_ones_helper_bit_determines_count :
-  forall {n : nat} (bits : BitArray n) start acc,
-    start < n * u64_bits ->
+  forall {n : Uint63.int} (bits : BitArray n) start acc,
+    start < (to_nat n) * u64_bits ->
     count_ones_helper bits start 1 acc = 
     if Z.testbit (bv_unsigned bits) (Z.of_nat start) then S acc else acc.
 Proof.
@@ -502,7 +502,7 @@ Proof.
 Qed.
 
 Lemma count_ones_helper_extensional :
-  forall {n : nat} (bits1 bits2 : BitArray n) start remaining acc,
+  forall {n : Uint63.int} (bits1 bits2 : BitArray n) start remaining acc,
     (forall i, start <= i < start + remaining -> 
        Z.testbit (bv_unsigned bits1) (Z.of_nat i) = 
        Z.testbit (bv_unsigned bits2) (Z.of_nat i)) ->
