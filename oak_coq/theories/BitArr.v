@@ -11,18 +11,18 @@ From stdpp Require Import bitvector.
 
 Definition u64_bits : nat := 64.
 
-Definition BitArray (n : nat) := bv (N.of_nat (n * u64_bits)).
+Definition BitArray (n : Uint63.int) := bv (N.of_nat ((to_nat n) * u64_bits)).
 
 (** Get value from bitmap at index *)
-Definition get_bit {n : nat} (bits : BitArray n) (idx : Uint63.int) : bool :=
-  let total_bits := n * u64_bits in
+Definition get_bit {n : Uint63.int} (bits : BitArray n) (idx : Uint63.int) : bool :=
+  let total_bits := (to_nat n) * u64_bits in
   if (Uint63.to_nat idx) <? total_bits then
     Z.testbit (bv_unsigned bits) (Uint63.to_Z idx)
   else false.
 
 (** Set value in bitmap at index **)
-Definition set_bit {n : nat} (bits : BitArray n) (idx : Uint63.int) (value : bool) : BitArray n :=
-  let total_bits := n * u64_bits in
+Definition set_bit {n : Uint63.int} (bits : BitArray n) (idx : Uint63.int) (value : bool) : BitArray n :=
+  let total_bits := (to_nat n) * u64_bits in
   if (Uint63.to_nat idx) <? total_bits then
     let current_val := bv_unsigned bits in
     let new_val := if value then
@@ -33,20 +33,20 @@ Definition set_bit {n : nat} (bits : BitArray n) (idx : Uint63.int) (value : boo
   else bits.
 
 (** Perform logical AND between two bitmaps *)
-Definition bitand {n : nat} (a b : BitArray n) : BitArray n :=
+Definition bitand {n : Uint63.int} (a b : BitArray n) : BitArray n :=
   bv_and a b.
 
 (** Perform logical NOT on a bitmap *)
-Definition bitnot {n : nat} (a : BitArray n) : BitArray n :=
+Definition bitnot {n : Uint63.int} (a : BitArray n) : BitArray n :=
   bv_not a.
 
 (** Find index of first 1 bit *)
-Definition first_one_from_zero {n : nat} (bits : BitArray n) : option Uint63.int :=
-  let total_bits := n * u64_bits in
+Definition first_one_from_zero {n : Uint63.int} (bits : BitArray n) : option Uint63.int :=
+  let total_bits := (to_nat n) * u64_bits in
   option_map (fun i => Uint63.of_Z (Z.of_nat i)) (find (fun i => Z.testbit (bv_unsigned bits) (Z.of_nat i)) (seq 0 total_bits)).
 
 (** Count number of ones in a bitmap *)
-Fixpoint count_ones_helper {n : nat} (bits : BitArray n) (i : nat) (remaining : nat) (acc : nat) : nat :=
+Fixpoint count_ones_helper {n : Uint63.int} (bits : BitArray n) (i : nat) (remaining : nat) (acc : nat) : nat :=
   match remaining with
   | 0 => acc
   | S remaining' =>
@@ -54,13 +54,13 @@ Fixpoint count_ones_helper {n : nat} (bits : BitArray n) (i : nat) (remaining : 
     count_ones_helper bits (S i) remaining' new_acc
   end.
 
-Definition count_ones {n : nat} (bits : BitArray n) : nat :=
-  let total_bits := n * u64_bits in
+Definition count_ones {n : Uint63.int} (bits : BitArray n) : nat :=
+  let total_bits := (to_nat n) * u64_bits in
   count_ones_helper bits 0 total_bits 0.
 
 (** Create zero-initialized BitArray *)
-Definition make_bitarray (n : nat) : BitArray n :=
-  Z_to_bv (N.of_nat (n * u64_bits)) 0.
+Definition make_bitarray (n : Uint63.int) : BitArray n :=
+  Z_to_bv (N.of_nat ((to_nat n) * u64_bits)) 0.
 
 Fixpoint bits_to_z_helper (bits : list bool) (pos : nat) (acc : Z) : Z :=
   match bits with
@@ -71,9 +71,11 @@ Fixpoint bits_to_z_helper (bits : list bool) (pos : nat) (acc : Z) : Z :=
   end.
 
 (** Create BitArray from list bool - note: list length should be multiple of 64 *)
-Definition bitarray_from_list (bits : list bool) : option (BitArray (Nat.div (length bits) u64_bits)) :=  if Nat.modulo (length bits) u64_bits =? 0 then
-  let n := Nat.div (length bits) u64_bits in
-    Some (Z_to_bv (N.of_nat (n * u64_bits)) (bits_to_z_helper bits 0 0))
+Definition bitarray_from_list (bits : list bool) : option { n : Uint63.int & BitArray n } :=
+  if Nat.modulo (length bits) u64_bits =? 0 then
+    let n_nat := Nat.div (length bits) u64_bits in
+    let n := Uint63.of_Z (Z.of_nat n_nat) in
+    Some (existT n (Z_to_bv (N.of_nat (to_nat n * u64_bits)) (bits_to_z_helper bits 0 0)))
   else None.
 
 (** Convert BitArray to list bool *)
@@ -87,16 +89,16 @@ Fixpoint z_to_bits_helper (fuel : nat) (total_bits : nat) (i : nat) (z : Z) (acc
     else acc
   end.
 
-Definition bitarray_to_list {n : nat} (bits : BitArray n) : list bool :=
-  let total_bits := n * u64_bits in
+Definition bitarray_to_list {n : Uint63.int} (bits : BitArray n) : list bool :=
+  let total_bits := (to_nat n) * u64_bits in
   z_to_bits_helper total_bits total_bits 0 (bv_unsigned bits) [].
 
 (** Helper to get total bit capacity *)
-Definition bitarray_capacity (n : nat) : nat := n * u64_bits.
+Definition bitarray_capacity (n : Uint63.int) : nat := (to_nat n) * u64_bits.
 
 Compute (bitarray_capacity 4096). (* Should be 262144 bits *)
 Compute (make_bitarray 4096).
-Compute (set_bit (make_bitarray 2) 0 true). (* Setting bit 65 (second u64, second bit) *)
+Compute (set_bit (make_bitarray 2) 65 true). (* Setting bit 65 (second u64, second bit) *)
 Compute count_ones (set_bit (set_bit (make_bitarray 2) 65 true) 66 true). (* Should be 2 *)
-Compute first_one_from_zero (set_bit (set_bit (make_bitarray 2) 1 true) 66 true).
+Compute first_one_from_zero (set_bit (set_bit (make_bitarray 2) 3 true) 66 true).
 Compute first_one_from_zero (make_bitarray 10). (* Should be None *)
