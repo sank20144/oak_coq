@@ -10,6 +10,7 @@ Open Scope string_scope.
 From OC Require Import PhysicalMemory.
 From OC Require Import BitArr.
 From OC Require Import VariableModel.
+From OC Require Import BitArrLemmas.
 
 Local Open Scope uint63_scope.
 
@@ -28,6 +29,15 @@ Notation "'let*' ( x , y ) ':=' e1 'in' e2" :=
   (at level 62, x pattern, y pattern, e1 at next level, right associativity).
 
 Notation "'return' e" := (Some e) (at level 60).
+
+Inductive Result (A : Type) : Type :=
+  | Ok : A -> Result A
+  | Err : Result A
+  | Panic : Result A.
+
+Arguments Ok {A}.
+Arguments Err {A}.
+Arguments Panic {A}.
 
 (** Well-formedness predicate for allocator state *)
 Definition allocator_wf {S : PageSize} {n : Uint63.int} 
@@ -60,21 +70,114 @@ Definition read_allocator {S : PageSize} {n : Uint63.int}
   | _ => None
   end.
 
-(** Update allocator's allocated bitmap *)
-Definition update_allocator_allocated {S : PageSize} {n : Uint63.int}
-  (p : prog_state) (var : var_name) (new_allocated : BitArray n) 
-  : option prog_state :=
-  let* alloc := @read_allocator S n p var in
-  let new_alloc := mkBitmapAllocator new_allocated (valid alloc) (range alloc) in
-  write_var p var (@VAllocator S n new_alloc).
+Definition with_mut_allocator {S : PageSize} {n : Uint63.int}
+  (p : prog_state) (self : var_name) (borrow_end : nat)
+  : option (prog_state * var_name * BitmapAllocator S n) :=
+  let ref_var := self ++ "_mut_ref" in
+  match let_mut_ref p ref_var self borrow_end with
+  | None => None
+  | Some p_ref =>
+      match @read_allocator S n p_ref ref_var with
+      | None => None
+      | Some alloc => Some (p_ref, ref_var, alloc)
+      end
+  end.
 
-(** Update allocator's valid bitmap *)
-Definition update_allocator_valid {S : PageSize} {n : Uint63.int}
-  (p : prog_state) (var : var_name) (new_valid : BitArray n) 
-  : option prog_state :=
-  let* alloc := @read_allocator S n p var in
-  let new_alloc := mkBitmapAllocator (allocated alloc) new_valid (range alloc) in
-  write_var p var (@VAllocator S n new_alloc).
+Definition with_shared_allocator {S : PageSize} {n : Uint63.int}
+  (p : prog_state) (self : var_name) (borrow_end : nat)
+  : option (prog_state * var_name * BitmapAllocator S n) :=
+  let ref_var := self ++ "_ref" in
+  match let_shared_ref p ref_var self borrow_end with
+  | None => None
+  | Some p_ref =>
+      match @read_allocator S n p_ref ref_var with
+      | None => None
+      | Some alloc => Some (p_ref, ref_var, alloc)
+      end
+  end.
+
+Notation "'with_mut_alloc' [ S , n ] self 'as' ref 'in' body" :=
+  (match @with_mut_allocator S n _ self _ with
+   | None => Panic
+   | Some (p_ref, ref, alloc) => body
+   end)
+  (at level 62, self at level 0, ref at level 0, body at next level).
+
+Notation "'with_shared_alloc' [ S , n ] self 'as' ref 'in' body" :=
+  (match @with_shared_allocator S n _ self _ with
+   | None => Panic
+   | Some (p_ref, ref, alloc) => body
+   end)
+  (at level 62, self at level 0, ref at level 0, body at next level).
+
+Notation "'with_mut_alloc' [ S , n ] self 'as' '(' p ',' ref ',' alloc ')' 'in' body" :=
+  (match @with_mut_allocator S n _ self _ with
+   | None => Panic
+   | Some (p, ref, alloc) => body
+   end)
+  (at level 62, self at level 0, p pattern, ref pattern, alloc pattern, body at next level).
+
+Notation "'with_shared_alloc' [ S , n ] self 'as' '(' p ',' ref ',' alloc ')' 'in' body" :=
+  (match @with_shared_allocator S n _ self _ with
+   | None => Panic
+   | Some (p, ref, alloc) => body
+   end)
+  (at level 62, self at level 0, p pattern, ref pattern, alloc pattern, body at next level).
+
+Notation "'with_shared_alloc' [ S , n ] 'from' p 'at' self 'for' lt 'as' '(' p' ',' ref ',' alloc ')' 'in' body" :=
+  (match @with_shared_allocator S n p self lt with
+   | None => Panic
+   | Some (p', ref, alloc) => body
+   end)
+  (at level 62, p at level 0, self at level 0, lt at level 0, 
+   p' pattern, ref pattern, alloc pattern, body at next level).
+
+Notation "'with_mut_alloc' [ S , n ] 'from' p 'at' self 'for' lt 'as' '(' p' ',' ref ',' alloc ')' 'in' body" :=
+  (match @with_mut_allocator S n p self lt with
+   | None => Panic
+   | Some (p', ref, alloc) => body
+   end)
+  (at level 62, p at level 0, self at level 0, lt at level 0, 
+   p' pattern, ref pattern, alloc pattern, body at next level).
+
+
+Definition write_and_drop {S : PageSize} {n : Uint63.int}
+  (p : prog_state) (ref_var : var_name) (alloc : BitmapAllocator S n)
+  : Result prog_state :=
+  match write_var p ref_var (@VAllocator S n alloc) with
+  | Some p' =>
+      match drop_var p' ref_var with
+      | Some p_final => Ok p_final
+      | None => Err
+      end
+  | None => Err
+  end.
+
+Definition drop_and_return {S : PageSize} {n : Uint63.int} {A : Type}
+  (p : prog_state) (ref_var : var_name) (result : Result A)
+  : Result A :=
+  match drop_var p ref_var with
+  | Some _ => result
+  | None => Panic
+  end.
+
+Notation "'let!' x ':=' e1 'in' e2" :=
+  (match e1 with
+   | Ok x => e2
+   | Err => Err
+   | Panic => Panic
+   end)
+  (at level 62, x pattern, e1 at next level, right associativity).
+
+Notation "'let!?' [ S , n , A ] x 'with' p_ref 'and' ref_var ':=' e1 'in' e2" :=
+  (match e1 with
+   | Some x => e2
+   | None => 
+       let p_ref := step_forward p_ref in
+       @drop_and_return S n A p_ref ref_var Err
+   end)
+  (at level 62, S at level 0, n at level 0, A at level 0, x pattern, 
+   p_ref at level 0, ref_var at level 0, e1 at next level, right associativity).
 
 (** Create a new allocator*)
 Definition new_allocator {S : PageSize} (n : Uint63.int) 
@@ -93,22 +196,21 @@ Definition new_allocator {S : PageSize} (n : Uint63.int)
     } *)
 Program Definition frame {S : PageSize} {n : Uint63.int}
   (p : prog_state) (self : var_name) (frame_idx : Uint63.int)
-  : option (PhysFrame S) :=
-  let ref_var := self ++ "_ref" in
-  let* p_with_ref := let_shared_ref p ref_var self 5 in
-  
-  let* alloc := @read_allocator S n p_with_ref ref_var in
-  let frame_range := range alloc in
-  let start_addr := start_address S (start_frame S frame_range) in
-  let end_addr := start_address S (end_frame S frame_range) in
-  let computed_addr := start_addr + (frame_idx * size S) in
-  
-  if end_addr <? computed_addr then
-    None
-  else 
-    return (mkPhysFrame S computed_addr _).
+  : Result (PhysFrame S) :=
+  with_shared_alloc [S, n] self as (p_ref, ref_var, alloc) in
+    if start_address S (end_frame S (range alloc)) <? 
+       start_address S (start_frame S (range alloc)) + (frame_idx * size S) then
+      let p_ref := step_forward p_ref in
+      @drop_and_return S n (PhysFrame S) p_ref ref_var Err
+    else
+      let p_ref := step_forward p_ref in
+      @drop_and_return S n (PhysFrame S) p_ref ref_var (Ok (mkPhysFrame S (start_address S (start_frame S (range alloc)) + (frame_idx * size S)) _)).
 Next Obligation.
-Admitted.
+  Admitted.
+Next Obligation.
+  Admitted.
+Next Obligation.
+  Admitted.
 
 (** Translate:
 fn frame_idx(&self, frame: PhysFrame<S>) -> Option<usize> {
@@ -121,18 +223,19 @@ fn frame_idx(&self, frame: PhysFrame<S>) -> Option<usize> {
             )
         }
     } *)
+
 Definition frame_idx {S : PageSize} {n : Uint63.int}
   (p : prog_state) (self : var_name) (frame : PhysFrame S)
-  : option Uint63.int :=
-  let ref_var := self ++ "_ref" in
-  let* p_with_ref := let_shared_ref p ref_var self 5 in
-  
-  let* alloc := @read_allocator S n p_with_ref ref_var in
-  
-  if (start_address S frame <? start_address S (start_frame S (range alloc))) || (start_address S (end_frame S (range alloc))  <? start_address S frame) then
-    None
-  else 
-    return ((start_address S frame - start_address S (start_frame S (range alloc))) / size S).
+  : Result Uint63.int :=
+  with_shared_alloc [S, n] from p at self for 5 as (p_ref, ref_var, alloc) in
+    if (start_address S frame <? start_address S (start_frame S (range alloc))) || 
+       (start_address S (end_frame S (range alloc)) <? start_address S frame) then
+      let p_ref := step_forward p_ref in
+      @drop_and_return S n Uint63.int p_ref ref_var Err
+    else 
+      let p_ref := step_forward p_ref in
+      @drop_and_return S n Uint63.int p_ref ref_var 
+        (Ok ((start_address S frame - start_address S (start_frame S (range alloc))) / size S)).
 
 (** Helper to set multiple bits in a range *)
 Definition fill {n : Uint63.int} (bits : BitArray n) (start_idx end_idx : nat) (value : bool) 
@@ -159,23 +262,21 @@ pub fn mark_valid(&mut self, range: PhysFrameRange<S>, valid: bool) {
 Definition mark_valid {S : PageSize} {n : Uint63.int} 
   (p : prog_state) (self : var_name) 
   (frame_range : PhysFrameRange S) (is_valid : bool)
-  : option prog_state :=
-  let ref_var := self ++ "_mut_ref" in
-  let* p_with_ref := let_mut_ref p ref_var self 5 in
-  
-  let* allocator := @read_allocator S n p_with_ref ref_var in
-  
-  let* start_idx := @frame_idx S n p_with_ref ref_var (start_frame S frame_range) in
-  let* end_idx := @frame_idx S n p_with_ref ref_var (end_frame S frame_range) in
-  
-  let new_valid := fill (valid allocator) 
-                       (Z.to_nat (to_Z start_idx)) 
-                       (Z.to_nat (to_Z end_idx)) 
-                       is_valid in
-  let new_alloc := mkBitmapAllocator (allocated allocator) new_valid (range allocator) in
-  let* p' := @write_var p_with_ref ref_var (@VAllocator S n new_alloc) in
- 
-  drop_var p' ref_var.
+  : Result prog_state :=
+  with_mut_alloc [S, n] from p at self for 2 as (p_ref, ref_var, alloc) in
+    match (@frame_idx S n p_ref ref_var (start_frame S frame_range),
+           @frame_idx S n p_ref ref_var (end_frame S frame_range)) with
+    | (Ok start_idx, Ok end_idx) =>
+        let p_ref := step_forward p_ref in
+        let new_valid := @fill n (@valid S n alloc)
+                             (Z.to_nat (to_Z start_idx)) 
+                             (Z.to_nat (to_Z end_idx)) 
+                             is_valid in
+        let new_alloc := mkBitmapAllocator (@allocated S n alloc) new_valid (@range S n alloc) in
+        let p_ref := step_forward p_ref in
+        write_and_drop p_ref ref_var new_alloc
+    | _ => Panic
+    end.
 
 (** Translate:
 unsafe impl<S: PageSize, const N: usize> FrameAllocator<S> for BitmapAllocator<S, N> {
@@ -187,21 +288,18 @@ unsafe impl<S: PageSize, const N: usize> FrameAllocator<S> for BitmapAllocator<S
 }*)
 Definition allocate_frame {S : PageSize} {n : Uint63.int} 
   (p : prog_state) (self : var_name)
-  : option (PhysFrame S * prog_state) :=
-  let ref_var := self ++ "_mut_ref" in
-  let* p_with_ref := let_mut_ref p ref_var self 4 in
-  
-  let* allocator := @read_allocator S n p_with_ref ref_var in
-
-  let available := get_available (allocated allocator) (valid allocator) in
-  let* frame_idx := first_one_from_zero available in
-  
-  let new_allocated := set_bit (allocated allocator) frame_idx true in
-  let* p' := @update_allocator_allocated S n p_with_ref ref_var new_allocated in
-  
-  let* frame := @frame S n p' ref_var frame_idx in
-  let* p_final := drop_var p' ref_var in
-  return (frame, p_final).
+  : Result (PhysFrame S * prog_state) :=
+  with_mut_alloc [S, n] from p at self for 4 as (p_ref, ref_var, allocator) in
+    (* let frame_idx = self.valid.bitand(self.allocated.not()).first_one()?; *)
+    let!? [S, n, (PhysFrame S * prog_state)] frame_idx with p_ref and ref_var := first_one_from_zero (get_available (allocated allocator) (valid allocator)) in
+    let p_ref := step_forward p_ref in
+    (* self.allocated.set(frame_idx, true); *)
+    let new_alloc := mkBitmapAllocator (set_bit (allocated allocator) frame_idx true) (valid allocator) (range allocator) in
+    let p_ref := step_forward p_ref in
+    let! p' := write_and_drop p_ref ref_var new_alloc in
+    (* self.frame(frame_idx) *)
+    let! frame_result := @frame S n p' self frame_idx in
+    Ok (frame_result, p').
 
 (** Translate:
 unsafe fn deallocate_frame(&mut self, frame: PhysFrame<S>) {
@@ -222,22 +320,27 @@ unsafe fn deallocate_frame(&mut self, frame: PhysFrame<S>) {
     } *)
 Definition deallocate_frame {S : PageSize} {n : Uint63.int} 
   (p : prog_state) (self : var_name) (frame : PhysFrame S)
-  : option prog_state :=
-  let ref_var := self ++ "_mut_ref" in
-  let* p_with_ref := let_mut_ref p ref_var self 12 in
-  let* allocator := @read_allocator S n p_with_ref ref_var in
-  
-  let* frame_idx := @frame_idx S n p_with_ref ref_var frame in
-  
-  if negb (get_bit (valid allocator) frame_idx) then
-    None
-  else if negb (get_bit (allocated allocator) frame_idx) then
-    None
-  else
-    let new_allocated := set_bit (allocated allocator) frame_idx false in
-    let* p' := @update_allocator_allocated S n p_with_ref ref_var new_allocated in
-
-    drop_var p' ref_var.
+  : Result prog_state :=
+  with_mut_alloc [S, n] from p at self for 4 as (p_ref, ref_var, allocator) in
+    (* if let Some(frame_idx) = self.frame_idx(frame) *)
+    let! frame_idx := @frame_idx S n p_ref ref_var frame in
+    let p_ref := step_forward p_ref in
+    (* if !self.valid[frame_idx] { panic!(...) } *)
+    match get_bit (valid allocator) frame_idx with
+    | false => Panic
+    | true =>
+        let p_ref := step_forward p_ref in
+        (* if !self.allocated[frame_idx] { panic!(...) } *)
+        match get_bit (allocated allocator) frame_idx with
+        | false => Panic
+        | true =>
+            (* self.allocated.set(frame_idx, false); *)
+            let p_ref := step_forward p_ref in
+            let new_alloc := mkBitmapAllocator (set_bit (allocated allocator) frame_idx false) (valid allocator) (range allocator) in
+            let p_ref := step_forward p_ref in
+            write_and_drop p_ref ref_var new_alloc
+        end
+    end.
 
 (** Initialize allocator with valid regions *)
 Definition init_allocator {S : PageSize} {n : Uint63.int}
@@ -246,10 +349,16 @@ Definition init_allocator {S : PageSize} {n : Uint63.int}
   : option prog_state :=
   fold_left (fun acc_p range_validity => 
     match acc_p with
-    | Some p' => @mark_valid S n p' var 
+    | Some p' => 
+        match @mark_valid S n p' var 
                             (fst range_validity) 
-                            (snd range_validity)
+                            (snd range_validity) with
+        | Ok p'' => Some p''
+        | _ => None
+        end
     | None => None
     end) 
   ranges_with_validity 
   (Some p).
+
+
