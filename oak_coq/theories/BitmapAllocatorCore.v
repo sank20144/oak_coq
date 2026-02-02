@@ -70,7 +70,7 @@ Definition read_allocator {S : PageSize} {n : Uint63.int}
   | _ => None
   end.
 
-Definition with_mut_allocator {S : PageSize} {n : Uint63.int}
+Definition read_mut_allocator {S : PageSize} {n : Uint63.int}
   (p : prog_state) (self : var_name) (borrow_end : nat)
   : option (prog_state * var_name * BitmapAllocator S n) :=
   let ref_var := self ++ "_mut_ref" in
@@ -83,7 +83,7 @@ Definition with_mut_allocator {S : PageSize} {n : Uint63.int}
       end
   end.
 
-Definition with_shared_allocator {S : PageSize} {n : Uint63.int}
+Definition read_shared_allocator {S : PageSize} {n : Uint63.int}
   (p : prog_state) (self : var_name) (borrow_end : nat)
   : option (prog_state * var_name * BitmapAllocator S n) :=
   let ref_var := self ++ "_ref" in
@@ -97,35 +97,35 @@ Definition with_shared_allocator {S : PageSize} {n : Uint63.int}
   end.
 
 Notation "'with_mut_alloc' [ S , n ] self 'as' ref 'in' body" :=
-  (match @with_mut_allocator S n _ self _ with
+  (match @read_mut_allocator S n _ self _ with
    | None => Panic
    | Some (p_ref, ref, alloc) => body
    end)
   (at level 62, self at level 0, ref at level 0, body at next level).
 
 Notation "'with_shared_alloc' [ S , n ] self 'as' ref 'in' body" :=
-  (match @with_shared_allocator S n _ self _ with
+  (match @read_shared_allocator S n _ self _ with
    | None => Panic
    | Some (p_ref, ref, alloc) => body
    end)
   (at level 62, self at level 0, ref at level 0, body at next level).
 
 Notation "'with_mut_alloc' [ S , n ] self 'as' '(' p ',' ref ',' alloc ')' 'in' body" :=
-  (match @with_mut_allocator S n _ self _ with
+  (match @read_mut_allocator S n _ self _ with
    | None => Panic
    | Some (p, ref, alloc) => body
    end)
   (at level 62, self at level 0, p pattern, ref pattern, alloc pattern, body at next level).
 
 Notation "'with_shared_alloc' [ S , n ] self 'as' '(' p ',' ref ',' alloc ')' 'in' body" :=
-  (match @with_shared_allocator S n _ self _ with
+  (match @read_shared_allocator S n _ self _ with
    | None => Panic
    | Some (p, ref, alloc) => body
    end)
   (at level 62, self at level 0, p pattern, ref pattern, alloc pattern, body at next level).
 
 Notation "'with_shared_alloc' [ S , n ] 'from' p 'at' self 'for' lt 'as' '(' p' ',' ref ',' alloc ')' 'in' body" :=
-  (match @with_shared_allocator S n p self lt with
+  (match @read_shared_allocator S n p self lt with
    | None => Panic
    | Some (p', ref, alloc) => body
    end)
@@ -133,7 +133,7 @@ Notation "'with_shared_alloc' [ S , n ] 'from' p 'at' self 'for' lt 'as' '(' p' 
    p' pattern, ref pattern, alloc pattern, body at next level).
 
 Notation "'with_mut_alloc' [ S , n ] 'from' p 'at' self 'for' lt 'as' '(' p' ',' ref ',' alloc ')' 'in' body" :=
-  (match @with_mut_allocator S n p self lt with
+  (match @read_mut_allocator S n p self lt with
    | None => Panic
    | Some (p', ref, alloc) => body
    end)
