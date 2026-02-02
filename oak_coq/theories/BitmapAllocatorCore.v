@@ -71,9 +71,10 @@ Definition read_allocator {S : PageSize} {n : Uint63.int}
   end.
 
 Definition read_mut_allocator {S : PageSize} {n : Uint63.int}
-  (p : prog_state) (self : var_name) (borrow_end : nat)
+  (p : prog_state) (self : var_name) (duration : nat)
   : option (prog_state * var_name * BitmapAllocator S n) :=
   let ref_var := self ++ "_mut_ref" in
+  let borrow_end := (ps_current_step p + duration)%nat in
   match let_mut_ref p ref_var self borrow_end with
   | None => None
   | Some p_ref =>
@@ -84,9 +85,10 @@ Definition read_mut_allocator {S : PageSize} {n : Uint63.int}
   end.
 
 Definition read_shared_allocator {S : PageSize} {n : Uint63.int}
-  (p : prog_state) (self : var_name) (borrow_end : nat)
+  (p : prog_state) (self : var_name) (duration : nat)
   : option (prog_state * var_name * BitmapAllocator S n) :=
   let ref_var := self ++ "_ref" in
+  let borrow_end := (ps_current_step p + duration)%nat in
   match let_shared_ref p ref_var self borrow_end with
   | None => None
   | Some p_ref =>
@@ -197,7 +199,7 @@ Definition new_allocator {S : PageSize} (n : Uint63.int)
 Program Definition frame {S : PageSize} {n : Uint63.int}
   (p : prog_state) (self : var_name) (frame_idx : Uint63.int)
   : Result (PhysFrame S) :=
-  read_shared_alloc [S, n] self as (p_ref, ref_var, alloc) in
+  read_shared_alloc [S, n] from p at self for 2 as (p_ref, ref_var, alloc) in
     if start_address S (end_frame S (range alloc)) <? 
        start_address S (start_frame S (range alloc)) + (frame_idx * size S) then
       let p_ref := step_forward p_ref in
@@ -205,10 +207,6 @@ Program Definition frame {S : PageSize} {n : Uint63.int}
     else
       let p_ref := step_forward p_ref in
       @drop_and_return S n (PhysFrame S) p_ref ref_var (Ok (mkPhysFrame S (start_address S (start_frame S (range alloc)) + (frame_idx * size S)) _)).
-Next Obligation.
-  Admitted.
-Next Obligation.
-  Admitted.
 Next Obligation.
   Admitted.
 
@@ -227,7 +225,7 @@ fn frame_idx(&self, frame: PhysFrame<S>) -> Option<usize> {
 Definition frame_idx {S : PageSize} {n : Uint63.int}
   (p : prog_state) (self : var_name) (frame : PhysFrame S)
   : Result Uint63.int :=
-  read_shared_alloc [S, n] from p at self for 5 as (p_ref, ref_var, alloc) in
+  read_shared_alloc [S, n] from p at self for 2 as (p_ref, ref_var, alloc) in
     if (start_address S frame <? start_address S (start_frame S (range alloc))) || 
        (start_address S (end_frame S (range alloc)) <? start_address S frame) then
       let p_ref := step_forward p_ref in
@@ -263,7 +261,7 @@ Definition mark_valid {S : PageSize} {n : Uint63.int}
   (p : prog_state) (self : var_name) 
   (frame_range : PhysFrameRange S) (is_valid : bool)
   : Result prog_state :=
-  read_mut_alloc [S, n] from p at self for 2 as (p_ref, ref_var, alloc) in
+  read_mut_alloc [S, n] from p at self for 6 as (p_ref, ref_var, alloc) in
     match (@frame_idx S n p_ref ref_var (start_frame S frame_range),
            @frame_idx S n p_ref ref_var (end_frame S frame_range)) with
     | (Ok start_idx, Ok end_idx) =>
@@ -322,7 +320,7 @@ unsafe fn deallocate_frame(&mut self, frame: PhysFrame<S>) {
 Definition deallocate_frame {S : PageSize} {n : Uint63.int} 
   (p : prog_state) (self : var_name) (frame : PhysFrame S)
   : Result prog_state :=
-  read_mut_alloc [S, n] from p at self for 4 as (p_ref, ref_var, allocator) in
+  read_mut_alloc [S, n] from p at self for 6 as (p_ref, ref_var, allocator) in
   match @frame_idx S n p_ref ref_var frame with
     | Ok frame_idx => 
         let p_ref := step_forward p_ref in
