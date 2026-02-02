@@ -96,35 +96,35 @@ Definition read_shared_allocator {S : PageSize} {n : Uint63.int}
       end
   end.
 
-Notation "'with_mut_alloc' [ S , n ] self 'as' ref 'in' body" :=
+Notation "'read_mut_alloc' [ S , n ] self 'as' ref 'in' body" :=
   (match @read_mut_allocator S n _ self _ with
    | None => Panic
    | Some (p_ref, ref, alloc) => body
    end)
   (at level 62, self at level 0, ref at level 0, body at next level).
 
-Notation "'with_shared_alloc' [ S , n ] self 'as' ref 'in' body" :=
+Notation "'read_shared_alloc' [ S , n ] self 'as' ref 'in' body" :=
   (match @read_shared_allocator S n _ self _ with
    | None => Panic
    | Some (p_ref, ref, alloc) => body
    end)
   (at level 62, self at level 0, ref at level 0, body at next level).
 
-Notation "'with_mut_alloc' [ S , n ] self 'as' '(' p ',' ref ',' alloc ')' 'in' body" :=
+Notation "'read_mut_alloc' [ S , n ] self 'as' '(' p ',' ref ',' alloc ')' 'in' body" :=
   (match @read_mut_allocator S n _ self _ with
    | None => Panic
    | Some (p, ref, alloc) => body
    end)
   (at level 62, self at level 0, p pattern, ref pattern, alloc pattern, body at next level).
 
-Notation "'with_shared_alloc' [ S , n ] self 'as' '(' p ',' ref ',' alloc ')' 'in' body" :=
+Notation "'read_shared_alloc' [ S , n ] self 'as' '(' p ',' ref ',' alloc ')' 'in' body" :=
   (match @read_shared_allocator S n _ self _ with
    | None => Panic
    | Some (p, ref, alloc) => body
    end)
   (at level 62, self at level 0, p pattern, ref pattern, alloc pattern, body at next level).
 
-Notation "'with_shared_alloc' [ S , n ] 'from' p 'at' self 'for' lt 'as' '(' p' ',' ref ',' alloc ')' 'in' body" :=
+Notation "'read_shared_alloc' [ S , n ] 'from' p 'at' self 'for' lt 'as' '(' p' ',' ref ',' alloc ')' 'in' body" :=
   (match @read_shared_allocator S n p self lt with
    | None => Panic
    | Some (p', ref, alloc) => body
@@ -132,7 +132,7 @@ Notation "'with_shared_alloc' [ S , n ] 'from' p 'at' self 'for' lt 'as' '(' p' 
   (at level 62, p at level 0, self at level 0, lt at level 0, 
    p' pattern, ref pattern, alloc pattern, body at next level).
 
-Notation "'with_mut_alloc' [ S , n ] 'from' p 'at' self 'for' lt 'as' '(' p' ',' ref ',' alloc ')' 'in' body" :=
+Notation "'read_mut_alloc' [ S , n ] 'from' p 'at' self 'for' lt 'as' '(' p' ',' ref ',' alloc ')' 'in' body" :=
   (match @read_mut_allocator S n p self lt with
    | None => Panic
    | Some (p', ref, alloc) => body
@@ -197,7 +197,7 @@ Definition new_allocator {S : PageSize} (n : Uint63.int)
 Program Definition frame {S : PageSize} {n : Uint63.int}
   (p : prog_state) (self : var_name) (frame_idx : Uint63.int)
   : Result (PhysFrame S) :=
-  with_shared_alloc [S, n] self as (p_ref, ref_var, alloc) in
+  read_shared_alloc [S, n] self as (p_ref, ref_var, alloc) in
     if start_address S (end_frame S (range alloc)) <? 
        start_address S (start_frame S (range alloc)) + (frame_idx * size S) then
       let p_ref := step_forward p_ref in
@@ -227,7 +227,7 @@ fn frame_idx(&self, frame: PhysFrame<S>) -> Option<usize> {
 Definition frame_idx {S : PageSize} {n : Uint63.int}
   (p : prog_state) (self : var_name) (frame : PhysFrame S)
   : Result Uint63.int :=
-  with_shared_alloc [S, n] from p at self for 5 as (p_ref, ref_var, alloc) in
+  read_shared_alloc [S, n] from p at self for 5 as (p_ref, ref_var, alloc) in
     if (start_address S frame <? start_address S (start_frame S (range alloc))) || 
        (start_address S (end_frame S (range alloc)) <? start_address S frame) then
       let p_ref := step_forward p_ref in
@@ -263,7 +263,7 @@ Definition mark_valid {S : PageSize} {n : Uint63.int}
   (p : prog_state) (self : var_name) 
   (frame_range : PhysFrameRange S) (is_valid : bool)
   : Result prog_state :=
-  with_mut_alloc [S, n] from p at self for 2 as (p_ref, ref_var, alloc) in
+  read_mut_alloc [S, n] from p at self for 2 as (p_ref, ref_var, alloc) in
     match (@frame_idx S n p_ref ref_var (start_frame S frame_range),
            @frame_idx S n p_ref ref_var (end_frame S frame_range)) with
     | (Ok start_idx, Ok end_idx) =>
@@ -289,7 +289,7 @@ unsafe impl<S: PageSize, const N: usize> FrameAllocator<S> for BitmapAllocator<S
 Definition allocate_frame {S : PageSize} {n : Uint63.int} 
   (p : prog_state) (self : var_name)
   : Result (PhysFrame S * prog_state) :=
-  with_mut_alloc [S, n] from p at self for 4 as (p_ref, ref_var, allocator) in
+  read_mut_alloc [S, n] from p at self for 4 as (p_ref, ref_var, allocator) in
     (* let frame_idx = self.valid.bitand(self.allocated.not()).first_one()?; *)
     let!? [S, n, (PhysFrame S * prog_state)] frame_idx with p_ref and ref_var := first_one_from_zero (get_available (allocated allocator) (valid allocator)) in
     let p_ref := step_forward p_ref in
@@ -321,7 +321,7 @@ unsafe fn deallocate_frame(&mut self, frame: PhysFrame<S>) {
 Definition deallocate_frame {S : PageSize} {n : Uint63.int} 
   (p : prog_state) (self : var_name) (frame : PhysFrame S)
   : Result prog_state :=
-  with_mut_alloc [S, n] from p at self for 4 as (p_ref, ref_var, allocator) in
+  read_mut_alloc [S, n] from p at self for 4 as (p_ref, ref_var, allocator) in
     (* if let Some(frame_idx) = self.frame_idx(frame) *)
     let! frame_idx := @frame_idx S n p_ref ref_var frame in
     let p_ref := step_forward p_ref in
