@@ -318,47 +318,46 @@ unsafe fn deallocate_frame(&mut self, frame: PhysFrame<S>) {
             );
         }
     } *)
+
 Definition deallocate_frame {S : PageSize} {n : Uint63.int} 
   (p : prog_state) (self : var_name) (frame : PhysFrame S)
   : Result prog_state :=
   read_mut_alloc [S, n] from p at self for 4 as (p_ref, ref_var, allocator) in
-    (* if let Some(frame_idx) = self.frame_idx(frame) *)
-    let! frame_idx := @frame_idx S n p_ref ref_var frame in
-    let p_ref := step_forward p_ref in
-    (* if !self.valid[frame_idx] { panic!(...) } *)
-    match get_bit (valid allocator) frame_idx with
-    | false => Panic
-    | true =>
+  match @frame_idx S n p_ref ref_var frame with
+    | Ok frame_idx => 
         let p_ref := step_forward p_ref in
+        (* if !self.valid[frame_idx] { panic!(...) } *)
+        if negb (get_bit (valid allocator) frame_idx) then
+          Panic
+        else
+          let p_ref := step_forward p_ref in
         (* if !self.allocated[frame_idx] { panic!(...) } *)
-        match get_bit (allocated allocator) frame_idx with
-        | false => Panic
-        | true =>
-            (* self.allocated.set(frame_idx, false); *)
+        if negb (get_bit (allocated allocator) frame_idx) then
+            Panic
+        else
             let p_ref := step_forward p_ref in
             let new_alloc := mkBitmapAllocator (set_bit (allocated allocator) frame_idx false) (valid allocator) (range allocator) in
             let p_ref := step_forward p_ref in
             write_and_drop p_ref ref_var new_alloc
-        end
+    | _ => Panic
     end.
+    
 
 (** Initialize allocator with valid regions *)
 Definition init_allocator {S : PageSize} {n : Uint63.int}
   (p : prog_state) (var : var_name) 
   (ranges_with_validity : list (PhysFrameRange S * bool)) 
-  : option prog_state :=
+  : Result prog_state :=
   fold_left (fun acc_p range_validity => 
     match acc_p with
-    | Some p' => 
-        match @mark_valid S n p' var 
-                            (fst range_validity) 
-                            (snd range_validity) with
-        | Ok p'' => Some p''
-        | _ => None
-        end
-    | None => None
+    | Ok p' => 
+        @mark_valid S n p' var 
+          (fst range_validity) 
+          (snd range_validity)
+    | Err => Err
+    | Panic => Panic
     end) 
   ranges_with_validity 
-  (Some p).
+  (Ok p).
 
 
