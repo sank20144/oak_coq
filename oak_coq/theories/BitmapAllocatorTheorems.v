@@ -210,6 +210,27 @@ Proof.
   reflexivity.
 Qed.
 
+
+Lemma write_var_preserves_vars (p p' : prog_state) (ref_var : var_name) (v_val : value) :
+  write_var p ref_var v_val = Some p' ->
+  ps_vars p' = ps_vars p.
+Proof.
+  intros. unfold write_var in H.
+  repeat (match goal with 
+          | [ H : match ?x with _ => _ end = _ |- _ ] => destruct x eqn:? ; try discriminate
+          end); inversion H; subst; reflexivity.
+Qed.
+
+Lemma drop_var_preserves_vars (p p' : prog_state) (var : var_name) :
+  drop_var p var = Some p' ->
+  ps_vars p' = var_remove (ps_vars p) var.
+Proof.
+  intros. unfold drop_var in H.
+  repeat (match goal with 
+          | [ H : match ?x with _ => _ end = _ |- _ ] => destruct x eqn:? ; try discriminate
+          end); inversion H; subst; simpl; reflexivity.
+Qed.
+
 Lemma var_update_eq (vars : var_env) (v : var_name) (own : var_ownership) :
   var_lookup (var_update vars v own) v = Some own.
 Proof.
@@ -411,20 +432,55 @@ Lemma read_mut_allocator_ref_droppable {S : PageSize} {n : Uint63.int}
   ps_current_step p_ref < ps_current_step p + duration ->
   exists p', drop_var (step_forward p_ref) ref_var = Some p'.
 Proof.
-  (* 
-     1. Unfold read_mut_allocator to see it calls let_mut_ref with borrow_end = ps_current_step p + duration
-     2. Use let_mut_ref_creates_mut_ref to show ref_var is a VarMutRef
-     3. The hypothesis shows ps_current_step (step_forward p_ref) = S (ps_current_step p_ref) < ps_current_step p + duration
-     4. This means the reference's lifetime hasn't ended yet
-     5. By definition of drop_var on VarMutRef:
-        - It looks up the heap location
-        - Since the lifetime is still valid and we're within the borrow_end bound,
-          the LocMut state exists with the correct lifetime at the top
-        - drop_var pops the lifetime from the stack, succeeding
-     
-     Why true? The reference is droppable because we're still within its lifetime bounds. *)
+  intros Hmut Hbound.
+  unfold read_mut_allocator in Hmut.
+  destruct (let_mut_ref p (self ++ "_mut_ref") self (ps_current_step p + duration)) as [p_mid|] eqn:Hlet; [|discriminate].
+  destruct (read_allocator p_mid (self ++ "_mut_ref")) as [alloc'|] eqn:Hread; [|discriminate].
+  injection Hmut as Hp_eq Href_eq Halloc_eq.
+  subst p_ref ref_var alloc'.
 
-Admitted.
+  unfold let_mut_ref in Hlet.
+  destruct (var_lookup (ps_vars p) self) as [v_self|] eqn:Hlookup_self; try discriminate.
+  destruct v_self as [a_self lt_self|a_self lt_self| |a_self lt_self]; try discriminate.
+
+  - destruct (heap_lookup (ps_heap p) a_self) as [[cell state]|] eqn:Hheap; try discriminate.
+    destruct state; try discriminate.
+    
+    destruct (lifetime_contained_in _ _) eqn:Hcont; [|discriminate].
+    
+    injection Hlet as Hp_mid_eq. subst p_mid.
+    
+    unfold step_forward, drop_var.
+    simpl.
+    
+    rewrite var_update_eq. 
+    simpl.
+    
+    rewrite heap_update_lookup_same.
+    unfold lifetime_eq. simpl. rewrite Nat.eqb_refl.
+    eexists. reflexivity.
+
+  - destruct (heap_lookup (ps_heap p) a_self) as [[cell state]|] eqn:Hheap; try discriminate.
+    destruct state as [| | lts]; try discriminate.
+    destruct lts as [| loc_lt rest_stack]; try discriminate.
+    
+    destruct (lifetime_eq loc_lt lt_self) eqn:Heq_lt; [|discriminate].
+    destruct (lifetime_contained_in _ _) eqn:Hcont; [|discriminate].
+    
+    injection Hlet as Hp_mid_eq. subst p_mid.
+    
+    unfold step_forward, drop_var.
+    simpl.
+    
+    rewrite var_update_eq.
+    simpl.
+    
+    rewrite heap_update_lookup_same.
+    simpl.
+    
+    unfold lifetime_eq. simpl. rewrite Nat.eqb_refl.
+    eexists. reflexivity.
+Qed.
 
 Lemma read_mut_allocator_preserves_step {S : PageSize} {n : Uint63.int}
   (p p_ref : prog_state) (self ref_var : var_name) (borrow_end : nat)
@@ -450,31 +506,6 @@ Proof.
 (** This should be true but due to the bug in the Rust implementation we cannot prove this in the model *)
 Admitted. 
 
-(** The allocator after write_and_drop has the updated content *)
-Lemma write_and_drop_allocator_content {S : PageSize} {n : Uint63.int}
-  (p p' : prog_state) (ref_var : var_name) (new_alloc : BitmapAllocator S n)
-  (self : var_name) :
-  write_and_drop p ref_var new_alloc = Ok p' ->
-  (* If ref_var was a mutable reference to self's allocator *)
-  exists alloc', read_allocator p' self = Some alloc' /\
-    allocated alloc' = allocated new_alloc /\
-    valid alloc' = valid new_alloc /\
-    range alloc' = range new_alloc.
-Proof.
-  (* 
-     1. Unfold write_and_drop: it does write_var then drop_var
-     2. write_var updates the heap cell at the address pointed to by ref_var
-        with the new VAllocator value (new_alloc)
-     3. ref_var was created by read_mut_allocator, pointing to the same address as self
-     4. After write_var, that address contains new_alloc
-     5. drop_var removes ref_var from vars and restores LocOwned, but doesn't change the cell value
-     6. self still points to the same address, which now contains new_alloc
-     7. read_allocator p' self will read this updated allocator
-     
-     Why true? write_and_drop updates the memory cell, and both ref_var and self
-     point to the same memory location. *)
-Admitted.
-
 (** frame_idx depends only on the range, not on the prog_state details *)
 Lemma frame_idx_depends_on_range {S : PageSize} {n : Uint63.int}
   (p1 p2 : prog_state) (v1 v2 : var_name) (f : PhysFrame S)
@@ -499,7 +530,23 @@ Proof.
      Why true? frame_idx is a pure arithmetic function of the frame and range. *)
 Admitted.
 
-
+Lemma var_lookup_var_remove_diff (vars : var_env) (v1 v2 : var_name) :
+  v1 <> v2 ->
+  var_lookup (var_remove vars v1) v2 = var_lookup vars v2.
+Proof.
+  intros Hneq.
+  unfold var_remove.
+  induction vars as [| [v own] rest IH].
+  - reflexivity.
+  - simpl. destruct (String.eqb v1 v) eqn:Heq_v1.
+    + apply String.eqb_eq in Heq_v1. subst v.
+      destruct (String.eqb v2 v1) eqn:Heq_v2v1.
+      * apply String.eqb_eq in Heq_v2v1. subst v2. contradiction.
+      * apply IH.
+    + simpl. destruct (String.eqb v2 v) eqn:Heq_v2.
+      * reflexivity.
+      * apply IH.
+Qed.
 
 (** After write_and_drop succeeds, the original variable is still accessible with LocOwned *)
 Lemma write_and_drop_preserves_var_ownership {S : PageSize} {n : Uint63.int}
@@ -510,10 +557,18 @@ Lemma write_and_drop_preserves_var_ownership {S : PageSize} {n : Uint63.int}
   ref_var <> self ->
   var_lookup (ps_vars p') self = Some (VarMutOwned a lt).
 Proof.
-  (* Why true? 
-     1. write_var only modifies the heap, not ps_vars 
-     2. var_remove preserves lookups for different variable names *)
-Admitted.
+  intros Hlookup Hwrite Hneq.
+  unfold write_and_drop in Hwrite.
+  destruct (write_var p ref_var (VAllocator new_alloc)) as [p_write|] eqn:Hwrite_var; try discriminate.
+  destruct (drop_var p_write ref_var) as [p_drop|] eqn:Hdrop; try discriminate.
+  injection Hwrite as Heq. subst p'.
+  
+  erewrite drop_var_preserves_vars; [| exact Hdrop].
+  erewrite write_var_preserves_vars; [| exact Hwrite_var].
+  rewrite var_lookup_var_remove_diff; assumption.
+Qed.
+
+
 
 (** After write_and_drop succeeds for a mutable reference, the heap location returns to LocOwned *)
 Lemma write_and_drop_restores_loc_owned {S : PageSize} {n : Uint63.int}
@@ -522,21 +577,34 @@ Lemma write_and_drop_restores_loc_owned {S : PageSize} {n : Uint63.int}
   write_and_drop p ref_var new_alloc = Ok p' ->
   (* If ref_var was a VarMutRef pointing to address a *)
   (exists lt, var_lookup (ps_vars p) ref_var = Some (VarMutRef a lt)) ->
-  exists m, heap_lookup (ps_heap p') a = Some (m, LocOwned).
+  (* and it was the ONLY borrow *)
+  (exists lt cell, heap_lookup (ps_heap p) a = Some (cell, LocMut [lt])) ->
+  heap_lookup (ps_heap p') a = Some (mk_cell (VAllocator new_alloc), LocOwned).
 Proof.
-  (* 
-     1. Unfold write_and_drop: write_var then drop_var
-     2. From hypothesis, ref_var is a VarMutRef pointing to address a
-     3. write_var updates the cell at address a with new_alloc, preserving LocMut state
-     4. drop_var on VarMutRef (see VariableModel.v lines 386-402):
-        - Looks up heap at address a
-        - Finds LocMut (loc_lt :: rest_stack)
-        - Checks lifetime_eq loc_lt lt (succeeds because ref_var owns the top)
-        - Pops the stack: if rest_stack = [], sets new_state to LocOwned
-     5. Since ref_var was created by read_mut_allocator from an owned variable,
-        rest_stack should be empty, so state becomes LocOwned
-     
-     Why true? drop_var restores ownership by removing the borrow from the stack. *)
+  intros Hwrite [lt Hlookup] [lt' [cell Hheap]].
+  unfold write_and_drop in Hwrite.
+  destruct (write_var p ref_var (VAllocator new_alloc)) as [p_write|] eqn:Hwrite_var; try discriminate.
+  destruct (drop_var p_write ref_var) as [p_drop|] eqn:Hdrop; try discriminate.
+  injection Hwrite as Heq. subst p'.
+
+  assert (Hvars_write: ps_vars p_write = ps_vars p) by (eapply write_var_preserves_vars; eauto).
+
+  unfold write_var in Hwrite_var.
+  rewrite Hlookup in Hwrite_var.
+  destruct (lifetime_active p lt) eqn:Hactive; try discriminate.
+  rewrite Hheap in Hwrite_var.
+  simpl in Hwrite_var.
+  destruct (lifetime_eq lt' lt) eqn:Heq_lt; try discriminate.
+  injection Hwrite_var as Heq_write. subst p_write.
+
+  unfold drop_var in Hdrop.
+  simpl in Hdrop.
+  rewrite Hlookup in Hdrop.
+  rewrite heap_update_lookup_same in Hdrop.
+  rewrite Heq_lt in Hdrop.
+  injection Hdrop as Heq_drop. subst p_drop.
+  simpl.
+  apply heap_update_lookup_same.
 Admitted.
 
 (** write_and_drop preserves step counter with offset *)
@@ -610,6 +678,14 @@ Admitted.
 Lemma step_forward_preserves_var_lookup
   (p : prog_state) (v : var_name) :
   var_lookup (ps_vars (step_forward p)) v = var_lookup (ps_vars p) v.
+Proof.
+  unfold step_forward. simpl. reflexivity.
+Qed.
+
+(** step_forward preserves heap lookups *)
+Lemma step_forward_preserves_heap_lookup
+  (p : prog_state) (a : addr) :
+  heap_lookup (ps_heap (step_forward p)) a = heap_lookup (ps_heap p) a.
 Proof.
   unfold step_forward. simpl. reflexivity.
 Qed.
@@ -740,6 +816,53 @@ Proof.
      5. Therefore var_lookup (ps_vars p_ref) ref_var = Some (VarMutRef a lt_ref)
      
      Why true? Mutable references point to the same memory location as the original variable. *)
+Admitted.
+
+(** Helper: read_mut_allocator results in a specific heap state *)
+Lemma read_mut_allocator_heap_state {S : PageSize} {n : Uint63.int}
+  (p p_ref : prog_state) (self ref_var : var_name) (duration : nat)
+  (alloc : BitmapAllocator S n) (a : addr) (lt : lifetime) :
+  read_mut_allocator p self duration = Some (p_ref, ref_var, alloc) ->
+  var_lookup (ps_vars p) self = Some (VarMutOwned a lt) ->
+  (exists m, heap_lookup (ps_heap p) a = Some (m, LocOwned)) ->
+  exists cell lt_ref, heap_lookup (ps_heap p_ref) a = Some (cell, LocMut [lt_ref]).
+Proof.
+  intros Hread Hvar [m Hheap].
+  unfold read_mut_allocator, let_mut_ref in Hread.
+  rewrite Hvar, Hheap in Hread.
+  destruct (lifetime_contained_in _ _) eqn:Hcontained; try discriminate.
+  destruct (read_allocator _ _) as [alloc_alt|] eqn:Hread'; try discriminate.
+  injection Hread as Hp_ref Href_var Halloc.
+  subst p_ref.
+  simpl.
+  eexists. eexists.
+  apply heap_update_lookup_same.
+Qed.
+
+
+(** The allocator after write_and_drop has the updated content *)
+Lemma write_and_drop_allocator_content {S : PageSize} {n : Uint63.int}
+  (p p' : prog_state) (ref_var : var_name) (new_alloc : BitmapAllocator S n)
+  (self : var_name) :
+  write_and_drop p ref_var new_alloc = Ok p' ->
+  (* If ref_var was a mutable reference to self's allocator *)
+  exists alloc', read_allocator p' self = Some alloc' /\
+    allocated alloc' = allocated new_alloc /\
+    valid alloc' = valid new_alloc /\
+    range alloc' = range new_alloc.
+Proof.
+  (* 
+     1. Unfold write_and_drop: it does write_var then drop_var
+     2. write_var updates the heap cell at the address pointed to by ref_var
+        with the new VAllocator value (new_alloc)
+     3. ref_var was created by read_mut_allocator, pointing to the same address as self
+     4. After write_var, that address contains new_alloc
+     5. drop_var removes ref_var from vars and restores LocOwned, but doesn't change the cell value
+     6. self still points to the same address, which now contains new_alloc
+     7. read_allocator p' self will read this updated allocator
+     
+     Why true? write_and_drop updates the memory cell, and both ref_var and self
+     point to the same memory location. *)
 Admitted.
 
 (** Allocation returns a valid, previously unallocated frame *)
@@ -958,11 +1081,19 @@ Proof.
        rewrite Hstep_p''. unfold step_forward. simpl. rewrite Hstep_p_ref. lia.
      }
      
-     assert (Hheap_p'': exists m', heap_lookup (ps_heap p'') a = Some (m', LocOwned)).
+     assert (Hheap_p'': exists cell, heap_lookup (ps_heap p'') a = Some (cell, LocOwned)).
      {
+       eexists.
        apply (write_and_drop_restores_loc_owned 
                 (step_forward (step_forward p_ref)) p'' ref_var _ a Hwrite).
-       exists lt_ref. unfold step_forward. simpl. exact Hvar_ref.
+       - exists lt_ref. unfold step_forward. simpl. exact Hvar_ref.
+       - rewrite step_forward_preserves_heap_lookup.
+         rewrite step_forward_preserves_heap_lookup.
+         pose proof (read_mut_allocator_heap_state p p_ref self ref_var 4 alloc_read a lt 
+                      Hread_mut Hvar_lookup) as Hheap_state.
+         destruct Hheap_state as [cell [lt_ref_state Hheap_state]].
+         { exists m. exact Hheap. }
+         exists lt_ref_state, cell. exact Hheap_state.
      }
      destruct Hheap_p'' as [m' Hheap_p''].
      
