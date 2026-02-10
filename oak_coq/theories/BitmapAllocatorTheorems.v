@@ -605,7 +605,7 @@ Proof.
   injection Hdrop as Heq_drop. subst p_drop.
   simpl.
   apply heap_update_lookup_same.
-Admitted.
+Qed.
 
 (** write_and_drop preserves step counter with offset *)
 Lemma write_and_drop_preserves_step {S : PageSize} {n : Uint63.int}
