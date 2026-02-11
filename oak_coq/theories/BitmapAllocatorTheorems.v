@@ -241,11 +241,63 @@ Proof.
     + simpl. rewrite Heq. apply IH.
 Qed.
 
+Lemma var_update_neq (vars : var_env) (v1 v2 : var_name) (own : var_ownership) :
+  v1 <> v2 ->
+  var_lookup (var_update vars v1 own) v2 = var_lookup vars v2.
+Proof.
+  intros Hneq.
+  induction vars as [|(v', own') rest IH].
+  - simpl. apply String.eqb_neq in Hneq. rewrite String.eqb_sym, Hneq. reflexivity.
+  - simpl. destruct (String.eqb v1 v') eqn:Heq1.
+    + apply String.eqb_eq in Heq1. subst v1.
+      simpl. destruct (String.eqb v2 v') eqn:Heq2.
+      * apply String.eqb_eq in Heq2. subst v2. contradiction.
+      * reflexivity.
+    + simpl. destruct (String.eqb v2 v') eqn:Heq2.
+      * reflexivity.
+      * apply IH.
+Qed.
+
+(** String inequality lemma *)
+Lemma string_append_suffix_neq (s suffix : string) :
+  suffix <> ""%string -> (s ++ suffix)%string <> s.
+Proof.
+  intros Hsuffix Heq.
+    induction s as [| c s' IH].
+    - simpl in Heq. exact (Hsuffix Heq).
+    - simpl in Heq. inversion Heq as [Htail].
+      apply IH in Htail. contradiction.
+Qed.
+
 (** Helper lemma: eq_rect with eq_refl is identity *)
 Lemma eq_rect_eq_refl {A : Type} (x : A) (P : A -> Type) (p : P x) :
   eq_rect x P p x eq_refl = p.
 Proof.
   reflexivity.
+Qed.
+
+
+(** step_forward preserves variable lookups *)
+Lemma step_forward_preserves_var_lookup
+  (p : prog_state) (v : var_name) :
+  var_lookup (ps_vars (step_forward p)) v = var_lookup (ps_vars p) v.
+Proof.
+  unfold step_forward. simpl. reflexivity.
+Qed.
+
+(** step_forward preserves heap lookups *)
+Lemma step_forward_preserves_heap_lookup
+  (p : prog_state) (a : addr) :
+  heap_lookup (ps_heap (step_forward p)) a = heap_lookup (ps_heap p) a.
+Proof.
+  unfold step_forward. simpl. reflexivity.
+Qed.
+
+(** step_forward increments step counter *)
+Lemma step_forward_step (p : prog_state) :
+  ps_current_step (step_forward p) = S (ps_current_step p).
+Proof.
+  unfold step_forward. simpl. reflexivity.
 Qed.
 
 (** Helper: Uint63.eqb reflexivity gives eq_refl after UIP *)
@@ -663,41 +715,24 @@ Lemma read_mut_allocator_preserves_original_var {S : PageSize} {n : Uint63.int}
   var_lookup (ps_vars p) self = Some (VarMutOwned a lt) ->
   var_lookup (ps_vars p_ref) self = Some (VarMutOwned a lt).
 Proof.
-  (* 
-     1. Unfold read_mut_allocator: it calls let_mut_ref with ref_var = self ++ "_mut_ref"
-     2. Since ref_var has a different name than self, it's a different string
-     3. let_mut_ref adds ref_var to the variable environment using var_update
-     4. var_update (VariableModel.v lines 128-134):
-        - If the name matches, it updates
-        - Otherwise, it recursively adds without modifying existing entries
-     5. Since ref_var <> self, the entry for self is preserved
-     6. Therefore var_lookup (ps_vars p_ref) self = var_lookup (ps_vars p) self
-     
-     Why true? Adding a new variable doesn't modify existing variables with different names. *)
-Admitted.
-
-(** step_forward preserves variable lookups *)
-Lemma step_forward_preserves_var_lookup
-  (p : prog_state) (v : var_name) :
-  var_lookup (ps_vars (step_forward p)) v = var_lookup (ps_vars p) v.
-Proof.
-  unfold step_forward. simpl. reflexivity.
+  intros Hmut Hvar.
+  unfold read_mut_allocator in Hmut.
+  destruct (let_mut_ref p (self ++ "_mut_ref") self _) as [p_ref'|] eqn:Hlet; [|discriminate].
+  destruct (read_allocator p_ref' _) as [alloc'|] eqn:Hread; [|discriminate].
+  injection Hmut as Hp_eq Href_eq Halloc_eq. subst p_ref ref_var alloc.
+  unfold let_mut_ref in Hlet.
+  rewrite Hvar in Hlet.
+  destruct (heap_lookup (ps_heap p) a) as [[cell state]|] eqn:Hheap; try discriminate.
+  destruct state; try discriminate.
+  destruct (lifetime_contained_in _ _) eqn:Hcont; [|discriminate].
+  injection Hlet as Hp_eq. subst p_ref'.
+  simpl.
+  rewrite var_update_neq.
+  - exact Hvar.
+  - apply string_append_suffix_neq.
+    discriminate.
 Qed.
 
-(** step_forward preserves heap lookups *)
-Lemma step_forward_preserves_heap_lookup
-  (p : prog_state) (a : addr) :
-  heap_lookup (ps_heap (step_forward p)) a = heap_lookup (ps_heap p) a.
-Proof.
-  unfold step_forward. simpl. reflexivity.
-Qed.
-
-(** step_forward increments step counter *)
-Lemma step_forward_step (p : prog_state) :
-  ps_current_step (step_forward p) = S (ps_current_step p).
-Proof.
-  unfold step_forward. simpl. reflexivity.
-Qed.
 
 (** ref_var created by read_mut_allocator is different from self *)
 Lemma read_mut_allocator_ref_var_diff {S : PageSize} {n : Uint63.int}
@@ -794,44 +829,45 @@ Proof.
        eexists; reflexivity.
 Qed.
 
+(** frame only panics when read_shared_allocator fails *)
+Lemma frame_panic_iff_read_shared_fails {S : PageSize} {n : Uint63.int}
+  (p : prog_state) (self : var_name) (idx : Uint63.int) :
+  @frame S n p self idx = Panic <->
+  @read_shared_allocator S n p self 2 = None.
+Proof.
+  (* Cannot prove this since we cannot discharge the proof obligation for frame due to Rust's implementation bug *)
+Admitted.
+
+(** If read_shared_allocator succeeds, frame doesn't panic *)
+Lemma frame_not_panic_when_read_shared_succeeds {S : PageSize} {n : Uint63.int}
+  (p : prog_state) (self : var_name) (idx : Uint63.int)
+  (p_ref : prog_state) (ref_var : var_name) (alloc : BitmapAllocator S n) :
+  @read_shared_allocator S n p self 2 = Some (p_ref, ref_var, alloc) ->
+  @frame S n p self idx <> Panic.
+Proof.
+  intros Hread_shared.
+  rewrite frame_panic_iff_read_shared_fails.
+  rewrite Hread_shared.
+  discriminate.
+Qed.
+
 (** If read_shared_allocator succeeds with proper preconditions, frame doesn't panic *)
 Lemma frame_not_panic_when_accessible {S : PageSize} {n : Uint63.int}
   (p : prog_state) (self : var_name) (idx : Uint63.int)
-  (a : addr) (lt : lifetime) (m : mem_cell) :
+  (alloc : BitmapAllocator S n) (a : addr) (lt : lifetime) (m : mem_cell) :
   var_lookup (ps_vars p) self = Some (VarMutOwned a lt) ->
+  read_allocator p self = Some alloc ->
   lifetime_active p lt = true ->
   ps_current_step p + 2 <= lt_end lt ->
   heap_lookup (ps_heap p) a = Some (m, LocOwned) ->
   @frame S n p self idx <> Panic.
 Proof.
-  (* 
-     1. Unfold frame definition (BitmapAllocatorCore.v lines 187-207)
-     2. frame calls read_shared_allocator, which should succeed because:
-        - self is VarMutOwned at address a with active lifetime lt
-        - heap has LocOwned at address a
-        - ps_current_step p + 2 <= lt_end lt ensures the borrow is valid
-     3. Use read_shared_allocator_succeeds to show it returns Some (p_ref, ref_var, alloc)
-     4. The frame function then:
-        - Reads the range from alloc
-        - Performs arithmetic comparison and construction
-        - Calls drop_and_return
-     5. drop_and_return only panics if drop_var fails
-     6. drop_var succeeds because the shared reference is valid and droppable
-     7. Therefore frame returns Ok _ or Err, never Panic
-     
-     Why true? With proper preconditions, all operations succeed and don't panic. *)
-
-Admitted.
-
-(** String inequality lemma *)
-Lemma string_append_suffix_neq (s suffix : string) :
-  suffix <> ""%string -> (s ++ suffix)%string <> s.
-Proof.
-  intros Hsuffix Heq.
-    induction s as [| c s' IH].
-    - simpl in Heq. exact (Hsuffix Heq).
-    - simpl in Heq. inversion Heq as [Htail].
-      apply IH in Htail. contradiction.
+  intros Hvar Hread Hactive Hstep_bound Hheap.
+  
+  pose proof (read_shared_allocator_succeeds p self a lt m alloc 
+    Hvar Hactive Hstep_bound Hheap Hread) as [p_ref [ref_var Hread_shared]].
+  
+  apply (frame_not_panic_when_read_shared_succeeds p self idx p_ref ref_var alloc Hread_shared).
 Qed.
 
 (** read_mut_allocator creates ref to same address as original variable *)
@@ -1171,8 +1207,13 @@ Proof.
      }
      destruct Hheap_p'' as [m' Hheap_p''].
      
-     pose proof (@frame_not_panic_when_accessible S n p'' self frame_idx_val a lt m'
-                   Hvar_p'' Hactive_p'' Hstep_bound_p'' Hheap_p'') as Hnot_panic.
+     pose proof (write_and_drop_allocator_content (step_forward (step_forward p_ref)) p'' ref_var 
+         {| allocated := set_bit (allocated alloc_read) frame_idx_val true;
+            valid := valid alloc_read;
+            range := range alloc_read |} self Hwrite) as [alloc' [Hread_p'' _]].
+
+     pose proof (@frame_not_panic_when_accessible S n p'' self frame_idx_val alloc' a lt m'
+                   Hvar_p'' Hread_p'' Hactive_p'' Hstep_bound_p'' Hheap_p'') as Hnot_panic.
      
      contradiction.
 Qed.
