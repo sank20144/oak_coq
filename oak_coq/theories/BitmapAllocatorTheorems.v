@@ -878,20 +878,22 @@ Lemma read_mut_allocator_same_addr {S : PageSize} {n : Uint63.int}
   var_lookup (ps_vars p) self = Some (VarMutOwned a lt) ->
   exists lt_ref, var_lookup (ps_vars p_ref) ref_var = Some (VarMutRef a lt_ref).
 Proof.
-  (* 
-     1. Unfold read_mut_allocator (BitmapAllocatorCore.v lines 70-80):
-        - Calls let_mut_ref p ref_var self borrow_end
-        - Then reads through the created reference
-     2. From hypothesis, self points to VarMutOwned a lt
-     3. Use let_mut_ref_creates_mut_ref to show:
-        - let_mut_ref creates a VarMutRef at ref_var
-        - This VarMutRef points to the same address a as self
-     4. The new lifetime lt_ref is created with:
-        lt_ref = mk_lifetime (ps_next_lifetime_id p) (ps_current_step p) borrow_end
-     5. Therefore var_lookup (ps_vars p_ref) ref_var = Some (VarMutRef a lt_ref)
-     
-     Why true? Mutable references point to the same memory location as the original variable. *)
-Admitted.
+  intros Hread Hvar.
+  unfold read_mut_allocator in Hread.
+  destruct (let_mut_ref p (self ++ "_mut_ref") self _) as [p_ref'|] eqn:Hlet; [|discriminate].
+  destruct (read_allocator p_ref' _) as [alloc'|] eqn:Hread_alloc; [|discriminate].
+  injection Hread as Hp_eq Href_eq Halloc_eq.
+  subst p_ref ref_var alloc'.
+  unfold let_mut_ref in Hlet.
+  rewrite Hvar in Hlet.
+  destruct (heap_lookup (ps_heap p) a) as [[cell state]|] eqn:Hheap; [|discriminate].
+  destruct state; try discriminate.
+  destruct (lifetime_contained_in _ _) eqn:Hcont; [|discriminate].
+  injection Hlet as Hp_eq. subst p_ref'.
+  simpl.
+  eexists.
+  rewrite var_update_eq. reflexivity.
+Qed.
 
 (** Helper: read_mut_allocator results in a specific heap state *)
 Lemma read_mut_allocator_heap_state {S : PageSize} {n : Uint63.int}
@@ -926,18 +928,7 @@ Lemma write_and_drop_allocator_content {S : PageSize} {n : Uint63.int}
     valid alloc' = valid new_alloc /\
     range alloc' = range new_alloc.
 Proof.
-  (* 
-     1. Unfold write_and_drop: it does write_var then drop_var
-     2. write_var updates the heap cell at the address pointed to by ref_var
-        with the new VAllocator value (new_alloc)
-     3. ref_var was created by read_mut_allocator, pointing to the same address as self
-     4. After write_var, that address contains new_alloc
-     5. drop_var removes ref_var from vars and restores LocOwned, but doesn't change the cell value
-     6. self still points to the same address, which now contains new_alloc
-     7. read_allocator p' self will read this updated allocator
-     
-     Why true? write_and_drop updates the memory cell, and both ref_var and self
-     point to the same memory location. *)
+  
 Admitted.
 
 (** Allocation returns a valid, previously unallocated frame *)
