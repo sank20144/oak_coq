@@ -69,7 +69,6 @@ Qed.
 
 Local Close Scope Z_scope.
 
-
 (** Helper lemma: first_one_from_zero returns indices within bounds *)
 Lemma first_one_from_zero_lt {n : Uint63.int} (bits : BitArray n) (idx : Uint63.int) :
   first_one_from_zero bits = Some idx ->
@@ -760,21 +759,6 @@ Lemma read_shared_allocator_succeeds {S : PageSize} {n : Uint63.int}
     @read_shared_allocator S n p self 2 = Some (p_ref, ref_var, alloc).
 Proof.
   intros Hvar Hactive Hbound Hheap Hread.
-  unfold read_shared_allocator, let_shared_ref.
-  rewrite Hvar, Hheap.
-  assert (Hcont: lifetime_contained_in
-            {| lt_id := ps_next_lifetime_id p; 
-               lt_start := ps_current_step p; 
-               lt_end := ps_current_step p + 2 |} lt = true).
-  {
-    unfold lifetime_contained_in; simpl.
-    apply andb_true_iff. split.
-    - apply Nat.leb_le. unfold lifetime_active in Hactive.
-      apply andb_true_iff in Hactive. destruct Hactive as [Hstart _].
-      apply Nat.leb_le in Hstart. exact Hstart.
-    - apply Nat.leb_le. exact Hbound.
-  }
-  rewrite Hcont.
   remember (mk_lifetime (ps_next_lifetime_id p) (ps_current_step p) (ps_current_step p + 2)) as borrow_lt.
   remember ({|
     ps_heap := heap_update (ps_heap p) a m (LocShared [borrow_lt]);
@@ -783,9 +767,36 @@ Proof.
     ps_next_lifetime_id := Datatypes.S (ps_next_lifetime_id p);
     ps_current_step := ps_current_step p
   |}) as p_ref.
-  exists p_ref, (self ++ "_ref")%string.
-  assert (Hvar_same: read_var p_ref (self ++ "_ref") = read_var p self).
+  
+  assert (Hlet: let_shared_ref p (self ++ "_ref") self (ps_current_step p + 2) = Some p_ref).
   {
+    unfold let_shared_ref, make_shared_borrow.
+    rewrite Hvar, Hheap.
+    destruct (lifetime_contained_in
+              {| lt_id := ps_next_lifetime_id p; 
+                 lt_start := ps_current_step p; 
+                 lt_end := ps_current_step p + 2 |} lt) eqn:Hcont.
+    - subst p_ref borrow_lt. reflexivity.
+    - exfalso.
+      unfold lifetime_contained_in in Hcont.
+      simpl in Hcont.
+      apply andb_false_iff in Hcont.
+      destruct Hcont as [Hstart_bad | Hend_bad].
+      + apply Nat.leb_nle in Hstart_bad.
+        unfold lifetime_active in Hactive.
+        apply andb_true_iff in Hactive.
+        destruct Hactive as [Hstart _].
+        apply Nat.leb_le in Hstart.
+        lia.
+      + apply Nat.leb_nle in Hend_bad.
+        lia.
+  }
+
+  exists p_ref, (self ++ "_ref")%string.
+  
+  assert (Halloc_same: @read_allocator S n p_ref (self ++ "_ref") = read_allocator p self).
+  {
+    unfold read_allocator.
     unfold read_var.
     rewrite Hvar.
     rewrite Hactive.
@@ -800,13 +811,13 @@ Proof.
     rewrite heap_update_lookup_same.
     reflexivity.
   }
-  assert (Halloc_same: @read_allocator S n p_ref (self ++ "_ref") = read_allocator p self).
-  {
-    unfold read_allocator.
-    rewrite Hvar_same.
-    reflexivity.
-  }
-  rewrite Halloc_same. rewrite Hread. reflexivity.
+
+  unfold read_shared_allocator.
+  rewrite Hlet.
+  simpl.
+  rewrite Halloc_same.
+  rewrite Hread.
+  reflexivity.
 Qed.
 
 Lemma drop_shared_ref_succeeds {S : PageSize} {n : Uint63.int}
@@ -814,19 +825,110 @@ Lemma drop_shared_ref_succeeds {S : PageSize} {n : Uint63.int}
   @read_shared_allocator S n p v 2 = Some (p_ref, v_ref, alloc) ->
   exists p_fin, drop_var (step_forward p_ref) v_ref = Some p_fin.
 Proof.
-  intros Hr. unfold read_shared_allocator, let_shared_ref in Hr.
-  destruct (var_lookup (ps_vars p) v) eqn:Hvar; try discriminate.
-  destruct v0 as [a lt | a lt | a lt | a lt];
-  destruct (heap_lookup (ps_heap p) a) as [[cell state]|] eqn:Hheap; try discriminate;
-  destruct state as [| lts | lts]; try discriminate;
-  destruct (lifetime_contained_in _ _) eqn:Hcont; try discriminate.
-  all: destruct (read_allocator _ (v ++ "_ref")%string) eqn:Halloc_read; try discriminate;
-       injection Hr as Hp_ref_eq Hv_ref_eq Ha_eq;
-       subst p_ref v_ref;
-       unfold step_forward, drop_var; simpl;
-       rewrite var_update_eq;
-       rewrite heap_update_lookup_same; simpl;
-       eexists; reflexivity.
+  intros Hr. 
+  unfold read_shared_allocator in Hr.
+  unfold let_shared_ref in Hr.
+  
+  destruct (var_lookup (ps_vars p) v) as [own|] eqn:Hvar; try discriminate.
+  destruct own as [a lt|a lt|a lt|a lt].
+  - destruct (heap_lookup (ps_heap p) a) as [[cell state]|] eqn:Hheap; try discriminate.
+    destruct state.
+    + destruct (make_shared_borrow _ _ _ _ _ _ _) as [p_ref_val|] eqn:Hmake; try discriminate.
+      destruct (read_allocator p_ref_val _) as [alloc_val|] eqn:Hread_alloc; try discriminate.
+      injection Hr as Hp_eq Hv_eq Halloc_eq.
+      subst p_ref v_ref alloc_val.
+      
+      unfold make_shared_borrow in Hmake.
+      destruct (lifetime_contained_in _ _) eqn:Hcont; try discriminate.
+      injection Hmake as Hp_ref_def.
+      subst p_ref_val.
+      
+      unfold drop_var.
+      simpl.
+      rewrite var_update_eq.
+      rewrite heap_update_lookup_same.
+      simpl.
+      eexists. reflexivity.
+
+    + destruct (make_shared_borrow _ _ _ _ _ _ _) as [p_ref_val|] eqn:Hmake; try discriminate.
+      destruct (read_allocator p_ref_val _) as [alloc_val|] eqn:Hread_alloc; try discriminate.
+      injection Hr as Hp_eq Hv_eq Halloc_eq.
+      subst p_ref v_ref alloc_val.
+      
+      unfold make_shared_borrow in Hmake.
+      destruct (lifetime_contained_in _ _) eqn:Hcont; try discriminate.
+      injection Hmake as Hp_ref_def.
+      subst p_ref_val.
+      
+      unfold drop_var.
+      simpl.
+      rewrite var_update_eq.
+      rewrite heap_update_lookup_same.
+      simpl.
+      eexists. reflexivity.
+      
+    + discriminate.
+
+  - destruct (heap_lookup (ps_heap p) a) as [[cell state]|] eqn:Hheap; try discriminate.
+    destruct state.
+    + destruct (make_shared_borrow _ _ _ _ _ _ _) as [p_ref_val|] eqn:Hmake; try discriminate.
+      destruct (read_allocator p_ref_val _) as [alloc_val|] eqn:Hread_alloc; try discriminate.
+      injection Hr as Hp_eq Hv_eq Halloc_eq.
+      subst p_ref v_ref alloc_val.
+      
+      unfold make_shared_borrow in Hmake.
+      destruct (lifetime_contained_in _ _) eqn:Hcont; try discriminate.
+      injection Hmake as Hp_ref_def.
+      subst p_ref_val.
+      
+      unfold drop_var.
+      simpl.
+      rewrite var_update_eq.
+      rewrite heap_update_lookup_same.
+      simpl.
+      eexists. reflexivity.
+
+    + destruct (make_shared_borrow _ _ _ _ _ _ _) as [p_ref_val|] eqn:Hmake; try discriminate.
+      destruct (read_allocator p_ref_val _) as [alloc_val|] eqn:Hread_alloc; try discriminate.
+      injection Hr as Hp_eq Hv_eq Halloc_eq.
+      subst p_ref v_ref alloc_val.
+      
+      unfold make_shared_borrow in Hmake.
+      destruct (lifetime_contained_in _ _) eqn:Hcont; try discriminate.
+      injection Hmake as Hp_ref_def.
+      subst p_ref_val.
+      
+      unfold drop_var.
+      simpl.
+      rewrite var_update_eq.
+      rewrite heap_update_lookup_same.
+      simpl.
+      eexists. reflexivity.
+
+    + discriminate.
+
+  - destruct (heap_lookup (ps_heap p) a) as [[cell state]|] eqn:Hheap; try discriminate.
+    destruct state.
+    + discriminate.
+    + destruct (make_shared_borrow _ _ _ _ _ _ _) as [p_ref_val|] eqn:Hmake; try discriminate.
+      destruct (read_allocator p_ref_val _) as [alloc_val|] eqn:Hread_alloc; try discriminate.
+      injection Hr as Hp_eq Hv_eq Halloc_eq.
+      subst p_ref v_ref alloc_val.
+      
+      unfold make_shared_borrow in Hmake.
+      destruct (lifetime_contained_in _ _) eqn:Hcont; try discriminate.
+      injection Hmake as Hp_ref_def.
+      subst p_ref_val.
+      
+      unfold drop_var.
+      simpl.
+      rewrite var_update_eq.
+      rewrite heap_update_lookup_same.
+      simpl.
+      eexists. reflexivity.
+    + discriminate.
+
+  - discriminate.
 Qed.
 
 (** frame only panics when read_shared_allocator fails *)
