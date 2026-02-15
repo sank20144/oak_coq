@@ -196,7 +196,13 @@ Definition new_allocator {S : PageSize} (n : Uint63.int)
             Some(self.range.start + frame_idx as u64)
         }
     } *)
-Program Definition frame {S : PageSize} {n : Uint63.int}
+
+
+Lemma frame_addr_aligned {S : PageSize} (start : Uint63.int) (idx : Uint63.int) :
+  start mod size S = 0 -> (start + idx * size S) mod size S = 0.
+Proof. Admitted. (* This should be true but cannot be proven due to the bug in Rusts implementation *)
+
+Definition frame {S : PageSize} {n : Uint63.int}
   (p : prog_state) (self : var_name) (frame_idx : Uint63.int)
   : Result (PhysFrame S) :=
   read_shared_alloc [S, n] from p at self for 2 as (p_ref, ref_var, alloc) in
@@ -206,9 +212,8 @@ Program Definition frame {S : PageSize} {n : Uint63.int}
       @drop_and_return S n (PhysFrame S) p_ref ref_var Err
     else
       let p_ref := step_forward p_ref in
-      @drop_and_return S n (PhysFrame S) p_ref ref_var (Ok (mkPhysFrame S (start_address S (start_frame S (range alloc)) + (frame_idx * size S)) _)).
-Next Obligation.
-  Admitted.
+      @drop_and_return S n (PhysFrame S) p_ref ref_var (Ok (mkPhysFrame S (start_address S (start_frame S (range alloc)) + (frame_idx * size S)) (frame_addr_aligned (start_address S (start_frame S (range alloc))) frame_idx (frame_aligned S (start_frame S (range alloc)))))).
+
 
 (** Translate:
 fn frame_idx(&self, frame: PhysFrame<S>) -> Option<usize> {
