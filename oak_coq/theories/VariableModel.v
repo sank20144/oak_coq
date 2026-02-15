@@ -184,7 +184,7 @@ Definition make_shared_borrow (s : prog_state) (ref_var : var_name) (a : addr)
     let new_lts := match existing_state with
                    | LocOwned => [borrow_lt]
                    | LocShared lts => borrow_lt :: lts
-                   | LocMut _ => [] (* Invalid case *)
+                   | LocMut _ => [] (* Special case handled in let_shared_ref *)
                    end in
     let h' := heap_update (ps_heap s) a cell (LocShared new_lts) in
     let vars' := var_update (ps_vars s) ref_var (VarSharedRef a borrow_lt) in
@@ -211,6 +211,21 @@ Definition let_shared_ref (s : prog_state) (ref_var : var_name) (owned_var : var
       match heap_lookup (ps_heap s) a with
       | Some (cell, LocShared lts) =>
           make_shared_borrow s ref_var a ref_lt cell (LocShared lts) borrow_end
+      | _ => None
+      end
+  | Some (VarMutRef a ref_lt) => (* Special Case : Shared reborrow from mutable reference*)
+      match heap_lookup (ps_heap s) a with
+      | Some (cell, LocMut (loc_lt :: rest_stack)) =>
+          if lifetime_eq loc_lt ref_lt then
+            let lt_id := ps_next_lifetime_id s in
+            let borrow_lt := mk_lifetime lt_id (ps_current_step s) borrow_end in
+            if lifetime_contained_in borrow_lt ref_lt then
+              (* Add the shared borrow to the mutable stack *)
+              let h' := heap_update (ps_heap s) a cell (LocMut (borrow_lt :: loc_lt :: rest_stack)) in
+              let vars' := var_update (ps_vars s) ref_var (VarSharedRef a borrow_lt) in
+              Some (mk_prog_state h' vars' (ps_next_addr s) (S lt_id) (ps_current_step s))
+            else None
+          else None
       | _ => None
       end
   | _ => None
@@ -272,8 +287,11 @@ Definition read_var (s : prog_state) (var : var_name) : option value :=
   | Some (VarSharedRef a lt) =>
       if lifetime_active s lt then
         match heap_lookup (ps_heap s) a with
-        | Some (cell, LocOwned) | Some (cell, LocShared _) => 
+        | Some (cell, LocShared _) => 
             Some (cell_value cell)
+        | Some (cell, LocMut (loc_lt :: _)) =>
+            (* We handle shared reborrow by allowing reading if this shared ref is at the top of the mutable stack *)
+            if lifetime_eq loc_lt lt then Some (cell_value cell) else None
         | _ => None
         end
       else None
@@ -334,6 +352,14 @@ Definition drop_var (s : prog_state) (var : var_name) : option prog_state :=
           let h' := heap_update (ps_heap s) a cell new_state in
           let vars' := var_remove (ps_vars s) var in
           Some (mk_prog_state h' vars' (ps_next_addr s) (ps_next_lifetime_id s) (ps_current_step s))
+      | Some (cell, LocMut (loc_lt :: rest_stack)) =>
+          (* Shared reborrow from mutable reference - pop from stack *)
+          if lifetime_eq loc_lt lt then
+            let new_state := if rest_stack then LocOwned else LocMut rest_stack in
+            let h' := heap_update (ps_heap s) a cell new_state in
+            let vars' := var_remove (ps_vars s) var in
+            Some (mk_prog_state h' vars' (ps_next_addr s) (ps_next_lifetime_id s) (ps_current_step s))
+          else None
       | _ => None
       end
   | Some (VarMutRef a lt) =>
