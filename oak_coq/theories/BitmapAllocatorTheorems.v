@@ -695,9 +695,12 @@ Proof.
       injection Hdrop as Heq. subst p'. reflexivity.
     - destruct (heap_lookup (ps_heap p_after_write) a) as [[cell state]|]; try discriminate.
       destruct state; try discriminate.
-      destruct l0; try discriminate.
-      injection Hdrop as Heq. subst p'. reflexivity. 
-      injection Hdrop as Heq. subst p'. simpl. reflexivity.
+      + destruct l0; try discriminate.
+        * injection Hdrop as Heq. subst p'. reflexivity. 
+        * injection Hdrop as Heq. subst p'. simpl. reflexivity.
+      + destruct l0 as [|loc_lt rest]; try discriminate.
+        destruct (lifetime_eq loc_lt l) eqn:Heq_lt; try discriminate.
+        injection Hdrop as Heq. subst p'. simpl. reflexivity.
     - destruct (heap_lookup (ps_heap p_after_write) a) as [[cell state]|]; try discriminate.
       destruct state; try discriminate.
       destruct l0 as [|loc_lt rest]; try discriminate.
@@ -928,7 +931,21 @@ Proof.
       eexists. reflexivity.
     + discriminate.
 
-  - discriminate.
+  - destruct (heap_lookup (ps_heap p) a) as [[cell state]|] eqn:Hheap; try discriminate.
+    destruct state as [| shared_lts | mut_lts]; try discriminate.
+    + destruct mut_lts as [|loc_lt rest_stack]; try discriminate.
+      destruct (lifetime_eq loc_lt lt) eqn:Hlt_eq; try discriminate.
+      destruct (lifetime_contained_in _ _) eqn:Hcont; try discriminate.
+      destruct (read_allocator _ _) as [alloc_val|] eqn:Hread_alloc; try discriminate.
+      injection Hr as Hp_eq Hv_eq Halloc_eq.
+      subst p_ref v_ref alloc_val.
+      
+      unfold drop_var. simpl.
+      rewrite var_update_eq. rewrite heap_update_lookup_same.
+      destruct (lifetime_eq {| lt_id := ps_next_lifetime_id p; lt_start := ps_current_step p; lt_end := ps_current_step p + 2 |} 
+                            {| lt_id := ps_next_lifetime_id p; lt_start := ps_current_step p; lt_end := ps_current_step p + 2 |}) eqn:Heq_self.
+      * eexists. reflexivity.
+      * exfalso. unfold lifetime_eq in Heq_self. rewrite Nat.eqb_refl in Heq_self. discriminate.   
 Qed.
 
 (** frame only panics when read_shared_allocator fails *)
@@ -937,8 +954,21 @@ Lemma frame_panic_iff_read_shared_fails {S : PageSize} {n : Uint63.int}
   @frame S n p self idx = Panic <->
   @read_shared_allocator S n p self 2 = None.
 Proof.
-  (* Cannot prove this since we cannot discharge the proof obligation for frame due to Rust's implementation bug *)
-Admitted.
+  unfold frame.
+  destruct (read_shared_allocator p self 2) as [[[p_ref ref_var] alloc]|] eqn:Hread.
+  - split; [intro Hpanic | intro Hcontr].
+    + exfalso.
+      pose proof (drop_shared_ref_succeeds p self p_ref ref_var alloc Hread) as [p_fin Hdrop].
+      unfold drop_and_return in Hpanic.
+      rewrite Hdrop in Hpanic.
+      match goal with
+      | [ H : (if ?cond then _ else _) = Panic |- _ ] => destruct cond
+      end.
+      * discriminate.
+      * discriminate.
+    + discriminate.
+  - split; intro; reflexivity.
+Qed.
 
 (** If read_shared_allocator succeeds, frame doesn't panic *)
 Lemma frame_not_panic_when_read_shared_succeeds {S : PageSize} {n : Uint63.int}
@@ -1436,234 +1466,670 @@ Proof.
          {| allocated := set_bit (allocated alloc_read) frame_idx_val true;
             valid := valid alloc_read;
             range := range alloc_read |} a lt Hwrite Hvar_input3 Hactive_input3 Href_input3 Hself_diff_ref) as [alloc_p'' [Hread_p'' _]].
-
+    
      pose proof (@frame_not_panic_when_accessible S n p'' self frame_idx_val alloc_p'' a lt m'
                    Hvar_p'' Hread_p'' Hactive_p'' Hstep_bound_p'' Hheap_p'') as Hnot_panic.
      
      contradiction.
 Qed.
-  
-(** A zero-initialized bitmap allocator is well-formed *)
-Theorem zero_init_allocator_wf {S : PageSize} {n : Uint63.int} 
-  (p : prog_state) (v : var_name) (r : PhysFrameRange S) (lt_end : nat) :
-  match new_allocator n p v r lt_end with
-  | Some (p', alloc_addr) =>
-      True (* Placeholder *)
-  | None => True
-  end.
-Proof.
-  unfold new_allocator, let_mut_owned.
-  destruct (Nat.ltb (ps_current_step p) lt_end) eqn:H; simpl; trivial.
-Qed.
 
-(*    
-(** Marking regions as valid in a zero-initialized allocator preserves well-formedness *)
-Theorem zero_init_mark_valid_wf {S : PageSize} {n : Uint63.int} 
-  (p : program_state) (r : PhysFrameRange S) (frame_range : PhysFrameRange S) :
-  let (p', alloc_addr) := new_allocator n p r in
-  match @mark_valid S n p' alloc_addr frame_range true with
-  | Some p'' => exists alloc, read_allocator p'' alloc_addr = Some alloc /\
-                             @allocator_wf S n alloc
-  | None => True
-  end.
+(** If read_allocator and read_shared_allocator both succeed on the same variable,
+    they return the same allocator. *)
+Lemma read_shared_allocator_returns_same_alloc {S : PageSize} {n : Uint63.int}
+  (p : prog_state) (v : var_name) (alloc : BitmapAllocator S n)
+  (p_ref : prog_state) (v_ref : var_name) (alloc' : BitmapAllocator S n) :
+  read_allocator p v = Some alloc ->
+  @read_shared_allocator S n p v 2 = Some (p_ref, v_ref, alloc') ->
+  alloc' = alloc.
 Proof.
-  assert (H_zero_wf: allocator_wf (new_allocator n r)).
-  { apply zero_init_allocator_wf. }
-  
-  unfold mark_valid.
-  destruct (frame_to_idx (new_allocator n r) (start_frame S frame_range)) as [start_idx|]; 
-    [|trivial].
-  destruct (frame_to_idx (new_allocator n r) (end_frame S frame_range)) as [end_idx|]; 
-    [|trivial].
-  
-  unfold allocator_wf. intros idx H_bound H_allocated.
-  
-  simpl in H_allocated.
-  
-  assert (H_zero_alloc: get_bit (allocated S n (new_allocator n r)) idx = false).
-  {
-    unfold new_allocator, make_bitarray, get_bit.
-    destruct (idx <? n * u64_bits); [|reflexivity].
-    apply Z.testbit_0_l.
-  }
-  simpl in *.
-  rewrite H_zero_alloc in H_allocated.
-  discriminate.
-Qed.
-
-Theorem zero_init_mark_valid_general_wf {S : PageSize} {n : Uint63.int} 
-  (p : program_state) (r : PhysFrameRange S) (frame_range : PhysFrameRange S) (is_valid : bool) :
-  let (p', alloc_addr) := new_allocator n p r in
-  match @mark_valid S n p' alloc_addr frame_range is_valid with
-  | Some p'' => exists alloc, read_allocator p'' alloc_addr = Some alloc /\
-                             @allocator_wf S n alloc
-  | None => True
-  end.
-Proof.
-  assert (H_zero_wf: @allocator_wf S n (new_allocator n r)).
-  { apply zero_init_allocator_wf. }
-  
-  unfold mark_valid.
-  destruct (frame_to_idx (new_allocator n r) (start_frame S frame_range)) as [start_idx|]; 
-    [|trivial].
-  destruct (frame_to_idx (new_allocator n r) (end_frame S frame_range)) as [end_idx|]; 
-    [|trivial].
-  
-  unfold allocator_wf. intros idx H_bound H_allocated.
-  
-  simpl in H_allocated.
-  
-  assert (H_zero_alloc: get_bit (allocated S n (new_allocator n r)) idx = false).
-  {
-    unfold new_allocator, make_bitarray, get_bit.
-    destruct (idx <? n * u64_bits); [|reflexivity].
-    apply Z.testbit_0_l.
-  }
-  
-  simpl in *.
-  rewrite H_zero_alloc in H_allocated.
-  discriminate.
-Qed.
-
-
-(* Theorem kernel_init_allocator_wf {S : PageSize} {n : Uint63.int} 
-        (r : PhysFrameRange S) :
-  forall alloc : BitmapAllocator S n,
-  (exists ranges : list (PhysFrameRange S),
-   fold_left (fun acc range => 
-     match acc with
-     | Some a => mark_valid a range true
-     | None => None
-     end) ranges (Some (new_allocator n r)) = Some alloc) ->
-  allocator_wf alloc.
-Proof.
-  intros alloc [ranges Hfold].
-  
-  assert (H_general: forall (init_alloc : BitmapAllocator S n),
-    allocator_wf init_alloc ->
-    forall final_alloc,
-    (exists remaining_ranges,
-     fold_left (fun acc range => 
-       match acc with
-       | Some a => mark_valid a range true
-       | None => None
-       end) remaining_ranges (Some init_alloc) = Some final_alloc) ->
-    allocator_wf final_alloc).
-  {
-    intros init_alloc Hinit_wf final_alloc [remaining_ranges Hremaining_fold].
-    revert init_alloc final_alloc Hinit_wf Hremaining_fold.
-    induction remaining_ranges as [|range rest_ranges IH]; 
-    intros init_alloc final_alloc Hinit_wf Hremaining_fold.
-    
-    - simpl in Hremaining_fold.
-      inversion Hremaining_fold. subst final_alloc.
-      exact Hinit_wf.
-    
-    - simpl in Hremaining_fold.
-      destruct (mark_valid init_alloc range true) as [intermediate_alloc|] eqn:Hmark. 
-      + assert (Hintermediate_wf: allocator_wf intermediate_alloc).
-        {
-          pose proof (mark_valid_preserves_wf init_alloc range Hinit_wf) as Hpres.
-          rewrite Hmark in Hpres.
-          exact Hpres.
-        }
+  intros Hread Hshared.
+  unfold read_shared_allocator in Hshared.
+  destruct (let_shared_ref p _ v _) as [p_let|] eqn:Hlet; [|discriminate].
+  destruct (@read_allocator S n p_let (v ++ "_ref")) as [alloc_let|] eqn:Hread_let; [|discriminate].
+  injection Hshared as _ _ Halloc'. subst alloc'.
+  unfold read_allocator in Hread, Hread_let.
+  unfold read_var in Hread, Hread_let.
+  unfold let_shared_ref in Hlet.
+  destruct (var_lookup (ps_vars p) v) as [own|] eqn:Hvar; [|discriminate].
+  destruct own as [a lt_v|a lt_v|a lt_v|a lt_v]; try discriminate.
+  - destruct (lifetime_active p lt_v) eqn:Hactive; [|discriminate].
+    destruct (heap_lookup (ps_heap p) a) as [[cell state]|] eqn:Hheap; try discriminate.
+    destruct state as [| lts |]; try discriminate.
+    + unfold make_shared_borrow in Hlet.
+      destruct (lifetime_contained_in _ _) eqn:Hcont; [|discriminate].
+      injection Hlet as Heq. subst p_let. simpl in Hread_let.
+      rewrite var_update_eq in Hread_let. simpl in Hread_let.
+      unfold lifetime_active in Hread_let.
+      simpl in Hread_let.
+      replace (ps_current_step p <=? ps_current_step p)%nat with true in Hread_let by (symmetry; apply Nat.leb_le; lia).
+      replace (ps_current_step p <? ps_current_step p + 2)%nat with true in Hread_let by (symmetry; apply Nat.ltb_lt; lia).
+      simpl in Hread_let.
+      rewrite heap_update_lookup_same in Hread_let.
+      simpl in Hread_let.
       
-        apply (IH intermediate_alloc final_alloc Hintermediate_wf Hremaining_fold).
-      + exfalso.
-        assert (H_none_propagates: forall remaining_list,
-          fold_left (fun acc range0 => 
-            match acc with
-            | Some a => @mark_valid S n a range0 true
-            | None => None
-            end) remaining_list None = None).
-        {
-          intro remaining_list.
-          induction remaining_list as [|range_elem rest IHrest].
-          - reflexivity.
-          - simpl. exact IHrest.
-        }
-        
-        rewrite H_none_propagates in Hremaining_fold.
-        discriminate Hremaining_fold.
-  }
+      destruct (can_read LocOwned) eqn:Hcan; simpl in *; try discriminate.
+      congruence.
+    + unfold make_shared_borrow in Hlet.
+      destruct (lifetime_contained_in _ _) eqn:Hcont; [|discriminate].
+      injection Hlet as Heq. subst p_let. simpl in Hread_let.
+      rewrite var_update_eq in Hread_let. simpl in Hread_let.
+      unfold lifetime_active in Hread_let.
+      simpl in Hread_let.
+      replace (ps_current_step p <=? ps_current_step p)%nat with true in Hread_let by (symmetry; apply Nat.leb_le; lia).
+      replace (ps_current_step p <? ps_current_step p + 2)%nat with true in Hread_let by (symmetry; apply Nat.ltb_lt; lia).
+      simpl in Hread_let.
+      rewrite heap_update_lookup_same in Hread_let.
+      simpl in Hread_let.
+      
+      destruct (can_read (LocShared lts)) eqn:Hcan; simpl in *; try discriminate.
+      congruence.
+  - destruct (lifetime_active p lt_v) eqn:Hactive; [|discriminate].
+    destruct (heap_lookup (ps_heap p) a) as [[cell state]|] eqn:Hheap; try discriminate.
+    destruct state as [| lts |]; try discriminate.
+    + unfold make_shared_borrow in Hlet.
+      destruct (lifetime_contained_in _ _) eqn:Hcont; [|discriminate].
+      injection Hlet as Heq. subst p_let. simpl in Hread_let.
+      rewrite var_update_eq in Hread_let. simpl in Hread_let.
+      unfold lifetime_active in Hread_let.
+      simpl in Hread_let.
+      replace (ps_current_step p <=? ps_current_step p)%nat with true in Hread_let by (symmetry; apply Nat.leb_le; lia).
+      replace (ps_current_step p <? ps_current_step p + 2)%nat with true in Hread_let by (symmetry; apply Nat.ltb_lt; lia).
+      simpl in Hread_let.
+      rewrite heap_update_lookup_same in Hread_let.
+      simpl in Hread_let.
+      
+      destruct (can_read LocOwned) eqn:Hcan; simpl in *; try discriminate.
+      congruence.
+    + unfold make_shared_borrow in Hlet.
+      destruct (lifetime_contained_in _ _) eqn:Hcont; [|discriminate].
+      injection Hlet as Heq. subst p_let. simpl in Hread_let.
+      rewrite var_update_eq in Hread_let. simpl in Hread_let.
+      unfold lifetime_active in Hread_let.
+      simpl in Hread_let.
+      replace (ps_current_step p <=? ps_current_step p)%nat with true in Hread_let by (symmetry; apply Nat.leb_le; lia).
+      replace (ps_current_step p <? ps_current_step p + 2)%nat with true in Hread_let by (symmetry; apply Nat.ltb_lt; lia).
+      simpl in Hread_let.
+      rewrite heap_update_lookup_same in Hread_let.
+      simpl in Hread_let.
+      
+      destruct (can_read (LocShared lts)) eqn:Hcan; simpl in *; try discriminate.
+      congruence.
+  - destruct (lifetime_active p lt_v) eqn:Hactive; [|discriminate].
+    destruct (heap_lookup (ps_heap p) a) as [[cell state]|] eqn:Hheap; try discriminate.
+    destruct state as [| lts | mut_lts]; try discriminate.
+    + unfold make_shared_borrow in Hlet.
+      destruct (lifetime_contained_in _ _) eqn:Hcont; [|discriminate].
+      injection Hlet as Heq. subst p_let. simpl in Hread_let.
+      rewrite var_update_eq in Hread_let. simpl in Hread_let.
+      unfold lifetime_active in Hread_let.
+      simpl in Hread_let.
+      replace (ps_current_step p <=? ps_current_step p)%nat with true in Hread_let by (symmetry; apply Nat.leb_le; lia).
+      replace (ps_current_step p <? ps_current_step p + 2)%nat with true in Hread_let by (symmetry; apply Nat.ltb_lt; lia).
+      simpl in Hread_let.
+      rewrite heap_update_lookup_same in Hread_let.
+      simpl in Hread_let.
+      
+      congruence.
+  - destruct (lifetime_active p lt_v) eqn:Hactive; [|discriminate].
+    destruct (heap_lookup (ps_heap p) a) as [[cell state]|] eqn:Hheap; try discriminate.
+    destruct state as [| shared_lts | mut_lts]; try discriminate.
+    + destruct mut_lts as [|loc_lt rest_stack]; try discriminate.
+      destruct (lifetime_eq loc_lt lt_v) eqn:Hlt_eq; try discriminate.
+      destruct (lifetime_contained_in _ _) eqn:Hcont; [|discriminate].
+      injection Hlet as Heq. subst p_let. simpl in Hread_let.
+      rewrite var_update_eq in Hread_let. simpl in Hread_let.
+      unfold lifetime_active in Hread_let.
+      simpl in Hread_let.
+      replace (ps_current_step p <=? ps_current_step p)%nat with true in Hread_let by (symmetry; apply Nat.leb_le; lia).
+      replace (ps_current_step p <? ps_current_step p + 2)%nat with true in Hread_let by (symmetry; apply Nat.ltb_lt; lia).
+      simpl in Hread_let.
+      rewrite heap_update_lookup_same in Hread_let.
+      unfold lifetime_eq in Hread_let. simpl in Hread_let.
+      rewrite Nat.eqb_refl in Hread_let. simpl in Hread_let.
+      rewrite Hread in Hread_let. simpl in Hread_let.
+      destruct (PageSize_eq_dec S S) as [Seq|]; [|contradiction].
+      assert (HeqS_refl: Seq = eq_refl) by (apply UIP_dec; apply PageSize_eq_dec).
+      clear HeqS_refl Seq. simpl in Hread_let.
+      congruence.
+Qed.
+
+(** If read_allocator succeeds and the variable conditions hold,
+    read_shared_allocator also succeeds with the same allocator and
+    the subsequent drop_var/step_forward succeeds. *)
+Lemma read_shared_allocator_succeeds_from_alloc {S : PageSize} {n : Uint63.int}
+  (p : prog_state) (v : var_name) (alloc : BitmapAllocator S n) :
+  read_allocator p v = Some alloc ->
+  (exists a lt m, var_lookup (ps_vars p) v = Some (VarMutOwned a lt) /\
+                lifetime_active p lt = true /\
+                ps_current_step p + 2 <= lt_end lt /\
+                heap_lookup (ps_heap p) a = Some (m, LocOwned)) ->
+  (exists p_ref v_ref, @read_shared_allocator S n p v 2 = Some (p_ref, v_ref, alloc) /\
+                       exists p_fin, drop_var (step_forward p_ref) v_ref = Some p_fin).
+Proof.
+  intros Hread [a [lt [m [Hvar [Hactive [Hstep Hheap]]]]]].
+  pose proof (read_shared_allocator_succeeds p v a lt m alloc Hvar Hactive Hstep Hheap Hread) as [p_ref [v_ref Hrs]].
+  exists p_ref, v_ref. split; [exact Hrs|].
+  apply (drop_shared_ref_succeeds p v p_ref v_ref alloc Hrs).
+Qed.
+
+Lemma read_shared_allocator_succeeds_from_mut_ref {S : PageSize} {n : Uint63.int}
+  (p : prog_state) (v : var_name) (alloc : BitmapAllocator S n) :
+  read_allocator p v = Some alloc ->
+  (exists (a: addr) (lt: lifetime) (lt_ref: lifetime), var_lookup (ps_vars p) v = Some (VarMutRef a lt_ref) /\
+                lifetime_active p lt_ref = true /\
+                ps_current_step p + 2 <= lt_end lt_ref /\
+                exists (cell: mem_cell), heap_lookup (ps_heap p) a = Some (cell, LocMut [lt_ref]) /\
+                lifetime_contained_in 
+                  {| lt_id := ps_next_lifetime_id p; 
+                     lt_start := ps_current_step p; 
+                     lt_end := ps_current_step p + 2 |} lt_ref = true) ->
+  (exists p_ref v_ref, @read_shared_allocator S n p v 2 = Some (p_ref, v_ref, alloc) /\
+                       exists p_fin, drop_var (step_forward p_ref) v_ref = Some p_fin).
+Proof.
+  intros Hread [a [lt [lt_ref [Hvar [Hactive [Hstep [cell [Hheap_lookup Hcont]]]]]]]].
   
-  apply (H_general (new_allocator n r)).
-  - apply zero_init_allocator_wf.
-  - exists ranges. exact Hfold.
-Qed. *)
+  set (borrow_lt := mk_lifetime (ps_next_lifetime_id p) (ps_current_step p) (ps_current_step p + 2)).
+  set (p_ref := {|
+    ps_heap := heap_update (ps_heap p) a cell (LocMut (borrow_lt :: lt_ref :: nil));
+    ps_vars := var_update (ps_vars p) (v ++ "_ref") (VarSharedRef a borrow_lt);
+    ps_next_addr := ps_next_addr p;
+    ps_next_lifetime_id := Datatypes.S (ps_next_lifetime_id p);
+    ps_current_step := ps_current_step p
+  |}).
+  
+  exists p_ref, (v ++ "_ref").
+  split.
+  - unfold read_shared_allocator.
+    assert (Hlet: let_shared_ref p (v ++ "_ref") v (ps_current_step p + 2) = Some p_ref).
+    {
+      unfold let_shared_ref.
+      rewrite Hvar.
+      rewrite Hheap_lookup.
+      unfold lifetime_eq.
+      simpl.
+      rewrite Nat.eqb_refl.
+      rewrite Hcont.
+      subst p_ref.
+      subst borrow_lt.
+      reflexivity.
+    }
+    rewrite Hlet.
+    simpl.
+    
+    assert (Hread_ref: @read_allocator S n p_ref (v ++ "_ref") = Some alloc).
+    {
+      unfold read_allocator in *.
+      unfold read_var in *.
+      simpl.
+      rewrite var_update_eq.
+      simpl.
+      rewrite heap_update_lookup_same.
+      subst borrow_lt.
+      unfold lifetime_active. simpl.
+      replace (ps_current_step p <=? ps_current_step p)%nat with true by (symmetry; apply Nat.leb_le; lia).
+      replace (ps_current_step p <? ps_current_step p + 2)%nat with true by (symmetry; apply Nat.ltb_lt; lia).
+      simpl.
+      unfold lifetime_eq. simpl. rewrite Nat.eqb_refl.
+      
+      rewrite Hvar in Hread.
+      rewrite Hactive in Hread.
+      rewrite Hheap_lookup in Hread.
+      unfold lifetime_eq in Hread. rewrite Nat.eqb_refl in Hread.
+      simpl in Hread.
+      destruct (cell_value cell) as [| | | | | | | | S' n' alloc']; try discriminate.
+      destruct (PageSize_eq_dec S S') as [e|]; try discriminate.
+      subst S'.
+      simpl in Hread. inversion Hread. clear Hread. subst.
+      
+      assert (H_int_UIP: forall (x y : int) (p1 p2 : x = y), p1 = p2).
+      { intros x0 y0. apply UIP_dec. 
+        intros i j. destruct (i =? j)%uint63 eqn:E.
+        - left. apply Uint63.eqb_spec. exact E.
+        - right. intro Hc. apply Uint63.eqb_spec in Hc. congruence. }
+      
+      simpl.
+      
+      reflexivity.
+    }
+    unfold read_shared_allocator.
+    simpl.
+    rewrite Hread_ref. reflexivity.
 
+  - eexists.
+    unfold drop_var.
+    unfold step_forward; simpl.
+    rewrite var_update_eq.
+    rewrite heap_update_lookup_same.
+    simpl.
+    unfold lifetime_eq. simpl.
+    rewrite Nat.eqb_refl.
+    eexists.
+Qed.
 
-Theorem mm_init_allocator_wf {S : PageSize} {n : Uint63.int} 
-  (p : program_state) (r : PhysFrameRange S) 
-  (ranges_with_validity : list (PhysFrameRange S * bool)) :
-  let (p', alloc_addr) := new_allocator n p r in
-  match @init_allocator S n p' alloc_addr ranges_with_validity with
-  | Some p'' => exists alloc, read_allocator p'' alloc_addr = Some alloc /\
-                             @allocator_wf S n alloc
-  | None => True
+(** frame_idx transfers between states with the same allocator range *)
+Lemma frame_idx_transfer {S : PageSize} {n : Uint63.int}
+  (p1 p2 : prog_state) (v1 v2 : var_name) (f : PhysFrame S)
+  (alloc1 alloc2 : BitmapAllocator S n) :
+  read_allocator p1 v1 = Some alloc1 ->
+  read_allocator p2 v2 = Some alloc2 ->
+  range alloc1 = range alloc2 ->
+  (exists p1_ref v1_ref, @read_shared_allocator S n p1 v1 2 = Some (p1_ref, v1_ref, alloc1) /\
+                       exists p1_fin, drop_var (step_forward p1_ref) v1_ref = Some p1_fin) ->
+  (exists p2_ref v2_ref, @read_shared_allocator S n p2 v2 2 = Some (p2_ref, v2_ref, alloc2) /\
+                       exists p2_fin, drop_var (step_forward p2_ref) v2_ref = Some p2_fin) ->
+  @frame_idx S n p1 v1 f = @frame_idx S n p2 v2 f.
+Proof.
+  intros Hread1 Hread2 Hrange Hsucc1 Hsucc2.
+  apply (frame_idx_depends_on_range p1 p2 v1 v2 f alloc1 alloc2 Hread1 Hread2 Hrange Hsucc1 Hsucc2).
+Qed.
+
+(** frame_idx only panics when read_shared_allocator fails *)
+Lemma frame_idx_panic_iff_read_shared_fails {S : PageSize} {n : Uint63.int}
+  (p : prog_state) (self : var_name) (frame : PhysFrame S) :
+  @frame_idx S n p self frame = Panic <->
+  @read_shared_allocator S n p self 2 = None.
+Proof.
+  split.
+  - intro Hpanic.
+    unfold frame_idx in Hpanic.
+    destruct (@read_shared_allocator S n p self 2) as [[[p_ref ref_var] alloc]|] eqn:Hread.
+    + pose proof (drop_shared_ref_succeeds p self p_ref ref_var alloc Hread) as [p_fin Hdrop].
+      unfold drop_and_return in Hpanic.
+      destruct (_ || _)%bool;
+        rewrite Hdrop in Hpanic; discriminate.
+    + reflexivity.
+  - intro Hnone.
+    unfold frame_idx.
+    rewrite Hnone.
+    reflexivity.
+Qed.
+
+(** If read_shared_allocator succeeds, frame_idx doesn't panic *)
+Lemma frame_idx_not_panic_when_read_shared_succeeds {S : PageSize} {n : Uint63.int}
+  (p : prog_state) (self : var_name) (frame : PhysFrame S)
+  (p_ref : prog_state) (ref_var : var_name) (alloc : BitmapAllocator S n) :
+  @read_shared_allocator S n p self 2 = Some (p_ref, ref_var, alloc) ->
+  @frame_idx S n p self frame <> Panic.
+Proof.
+  intros Hread_shared.
+  rewrite frame_idx_panic_iff_read_shared_fails.
+  rewrite Hread_shared.
+  discriminate.
+Qed.
+
+(** Deallocation returns a frame to the available pool *)
+Theorem deallocate_frame_correctness {S : PageSize} {n : Uint63.int} 
+  (p : prog_state) (self : var_name) (frame : PhysFrame S) :
+
+  (exists alloc, read_allocator p self = Some alloc /\ 
+    @allocator_wf S n alloc) ->
+  
+  (exists a lt m, var_lookup (ps_vars p) self = Some (VarMutOwned a lt) /\
+                lifetime_active p lt = true /\
+                ps_current_step p + 6 <= lt_end lt /\
+                heap_lookup (ps_heap p) a = Some (m, LocOwned)) ->
+
+  (* The frame is within range and currently allocated *)
+  (exists idx, @frame_idx S n p self frame = Ok idx /\
+    exists alloc, read_allocator p self = Some alloc /\
+      get_bit (@allocated S n alloc) idx = true) ->
+  
+  match @deallocate_frame S n p self frame with
+  | Ok p' => 
+      (* The frame was valid and allocated before *)
+      (exists alloc, read_allocator p self = Some alloc /\
+        exists idx, @frame_idx S n p self frame = Ok idx /\
+          get_bit (valid alloc) idx = true /\           
+          get_bit (@allocated S n alloc) idx = true) /\ 
+
+      (* The frame becomes unallocated after *)
+      (exists alloc', read_allocator p' self = Some alloc' /\
+        exists idx', @frame_idx S n p' self frame = Ok idx' /\
+          get_bit (@allocated S n alloc') idx' = false)   
+  | Err => True  
+  | Panic => False
   end.
 Proof.
-  assert (H_no_alloc_init: forall idx, idx < n * u64_bits -> 
-    get_bit (allocated S n (new_allocator n r)) idx = false).
-  {
-    intros idx H_bound.
-    unfold new_allocator, get_bit, make_bitarray.
-    destruct (idx <? n * u64_bits); [|reflexivity].
-    apply Z.testbit_0_l.
+  intros [alloc [Hread Hwf]] Hprecond Hframe_precond.
+  destruct Hprecond as [a [lt [m [Hvar_lookup [Hactive [Hstep_bound Hheap]]]]]].
+  destruct Hframe_precond as [fidx_pre [Hfidx_pre [alloc_f [Hread_f Halloc_pre]]]].
+  rewrite Hread in Hread_f. injection Hread_f as Hread_f. subst alloc_f.
+  unfold deallocate_frame.
+  
+  destruct (read_mut_allocator p self _) as [[[p_ref ref_var] alloc_read]|] eqn:Hread_mut.
+  2: { exfalso.
+     unfold read_mut_allocator in Hread_mut.
+     assert (Hlet_succeeds: exists p', let_mut_ref p (self ++ "_mut_ref") self (ps_current_step p + 6) = Some p').
+     {
+       unfold let_mut_ref.
+       rewrite Hvar_lookup, Hheap.
+       unfold lifetime_active in Hactive.
+       apply andb_true_iff in Hactive.
+       destruct Hactive as [Hstart_le Hstep_lt].
+       apply Nat.leb_le in Hstart_le.
+       apply Nat.ltb_lt in Hstep_lt.
+       assert (Hcontained: lifetime_contained_in 
+                 {| lt_id := ps_next_lifetime_id p; 
+                    lt_start := ps_current_step p; 
+                    lt_end := ps_current_step p + 6 |} lt = true).
+       { unfold lifetime_contained_in. simpl. apply andb_true_iff. split; apply Nat.leb_le; lia. }
+       rewrite Hcontained.
+       eexists. reflexivity.
+     }
+     destruct Hlet_succeeds as [p' Hlet].
+     rewrite Hlet in Hread_mut.
+     assert (Hlt_bound: ps_current_step p < ps_current_step p + 6).
+     { lia. }
+     pose proof (let_mut_ref_preserves_read_allocator p p' self (self ++ "_mut_ref") 
+                   (ps_current_step p + 6) alloc Hlet Hread Hlt_bound) as Hread'.
+     rewrite Hread' in Hread_mut.
+     discriminate Hread_mut.
   }
   
-  assert (H_general: forall (init_alloc : BitmapAllocator S n) remaining_ranges,
-    (forall idx, idx < n * u64_bits -> get_bit (allocated S n init_alloc) idx = false) ->
-    match fold_left (fun acc range_validity => 
-       match acc with
-       | Some a => mark_valid a (fst range_validity) (snd range_validity)
-       | None => None
-       end) remaining_ranges (Some init_alloc) with
-    | Some final_alloc => allocator_wf final_alloc
-    | None => True
-    end).
-  {
-    intros init_alloc remaining_ranges.
-    revert init_alloc.
-    induction remaining_ranges as [|(range, validity) rest_ranges IH]; 
-    intros init_alloc H_no_alloc.
-    
-    - simpl.
-      unfold allocator_wf.
-      intros idx H_bound H_allocated.
-      assert (H_false: get_bit (allocated S n init_alloc) idx = false).
-      { apply H_no_alloc; exact H_bound. }
-      rewrite H_false in H_allocated.
-      discriminate.
-    
-    - simpl.
-      destruct (mark_valid init_alloc range validity) as [intermediate_alloc|] eqn:Hmark.
-      + assert (H_intermediate_no_alloc: forall idx, idx < n * u63_bits -> 
-          get_bit (allocated S n intermediate_alloc) idx = false).
-        {
-          pose proof (mark_valid_preserves_no_allocated init_alloc range validity H_no_alloc) as H_pres.
-          rewrite Hmark in H_pres.
-          exact H_pres.
-        }
-        
-        apply (IH intermediate_alloc H_intermediate_no_alloc).
-        
-      + assert (H_none_propagates: forall remaining_list,
-          fold_left (fun acc range_validity => 
-            match acc with
-            | Some a => @mark_valid S n a (fst range_validity) (snd range_validity)
-            | None => None
-            end) remaining_list None = None).
-        {
-          intro remaining_list.
-          induction remaining_list as [|range_elem rest IHrest].
-          - reflexivity.
-          - simpl. exact IHrest.
-        }
-        rewrite H_none_propagates.
-        trivial.
-  }
+  assert (H6pos : 6 > 0) by lia.
+  pose proof (read_mut_allocator_preserves_content p self 6 alloc H6pos Hread) as Hpres.
+  rewrite Hread_mut in Hpres.
+  destruct Hpres as [Halloc_eq' [Hvalid_eq' Hrange_eq']].
+  assert (Heq_alloc: alloc_read = alloc).
+  { destruct alloc, alloc_read; simpl in *; subst; reflexivity. }
+  subst alloc_read.
   
-  apply (H_general (new_allocator n r) ranges_with_validity H_no_alloc_init).
+  assert (Hneq: ref_var <> self).
+  { pose proof (read_mut_allocator_ref_var_diff p p_ref self ref_var 6 alloc Hread_mut) as Heq_ref.
+    rewrite Heq_ref. apply string_append_suffix_neq. discriminate. }
+  
+  assert (Hread_pref: read_allocator p_ref ref_var = Some alloc).
+  { unfold read_mut_allocator in Hread_mut.
+    destruct (let_mut_ref _ _ _ _) as [p'|] eqn:Hlet; [|discriminate].
+    destruct (read_allocator p' _) as [a'|] eqn:Hra; [|discriminate].
+    injection Hread_mut as Hp Hr Ha. subst. exact Hra. }
+  
+  assert (Hpre_p: exists a0 lt0 m0, var_lookup (ps_vars p) self = Some (VarMutOwned a0 lt0) /\
+                lifetime_active p lt0 = true /\
+                ps_current_step p + 2 <= lt_end lt0 /\
+                heap_lookup (ps_heap p) a0 = Some (m0, LocOwned)).
+  { exists a, lt, m. repeat split; auto. lia. }
+  
+  destruct (@frame_idx S n p_ref ref_var frame) as [fidx| |] eqn:Hfidx.
+  
+  - assert (Hfidx_transfer: @frame_idx S n p self frame = Ok fidx).
+    { assert (Hsucc_pref: exists p1_ref v1_ref, @read_shared_allocator S n p_ref ref_var 2 = Some (p1_ref, v1_ref, alloc) /\
+                           exists p1_fin, drop_var (step_forward p1_ref) v1_ref = Some p1_fin).
+      {
+        unfold read_mut_allocator in Hread_mut.
+        destruct (let_mut_ref p (self ++ "_mut_ref") self (ps_current_step p + 6)) as [p_let|] eqn:Hlet_mut; [|discriminate].
+        destruct (read_allocator p_let (self ++ "_mut_ref")) eqn:Hread_plet.
+        2: { simpl in Hread_mut. discriminate. }
+        injection Hread_mut as Hp_eq Href_eq Halloc_eq.
+        subst p_let ref_var.
+        rewrite Halloc_eq in Hread_plet.
+
+        unfold let_mut_ref in Hlet_mut.
+        rewrite Hvar_lookup in Hlet_mut.
+        rewrite Hheap in Hlet_mut.
+        destruct (lifetime_contained_in _ _) eqn:Hcont_mut; [|discriminate].
+        injection Hlet_mut as Hp_ref_eq. rewrite <- Hp_ref_eq in *.
+
+        set (lt_borrow := {| lt_id := ps_next_lifetime_id p; 
+                             lt_start := ps_current_step p; 
+                             lt_end := ps_current_step p + 6 |}).
+
+        apply (read_shared_allocator_succeeds_from_mut_ref _ (self ++ "_mut_ref") alloc Hread_plet).
+        
+        exists a, lt, lt_borrow.
+        repeat split.
+        - simpl. rewrite var_update_eq. reflexivity.
+        - unfold lifetime_active. simpl.
+          apply andb_true_iff. split; [apply Nat.leb_le | apply Nat.ltb_lt]; lia.
+        - simpl. lia.
+        - eexists. split.
+          + simpl. rewrite heap_update_lookup_same. reflexivity.
+          + unfold lifetime_contained_in. simpl. apply andb_true_iff. split; apply Nat.leb_le; lia.
+      }
+      
+      assert (Hsucc_p: exists p2_ref v2_ref, @read_shared_allocator S n p self 2 = Some (p2_ref, v2_ref, alloc) /\
+                           exists p2_fin, drop_var (step_forward p2_ref) v2_ref = Some p2_fin).
+      {
+        apply (read_shared_allocator_succeeds_from_alloc p self alloc Hread).
+        exists a, lt, m. repeat split; auto. lia.
+      }
+      
+      pose proof (frame_idx_transfer p_ref p ref_var self frame alloc alloc
+                    Hread_pref Hread (eq_refl (range alloc)) Hsucc_pref Hsucc_p) as Hidx_eq.
+      rewrite <- Hidx_eq. exact Hfidx. }
+    
+    destruct (negb (get_bit (valid alloc) fidx)) eqn:Hvalid_check.
+    
+    + exfalso.
+      apply negb_true_iff in Hvalid_check.
+      rewrite Hfidx_transfer in Hfidx_pre. injection Hfidx_pre as Hfidx_eq. subst fidx_pre.
+      assert (Hfidx_bound: Uint63.to_nat fidx < to_nat n * u64_bits).
+      { destruct (Nat.ltb_spec (Uint63.to_nat fidx) (to_nat n * u64_bits)) as [Hlt|Hge].
+        - exact Hlt.
+        - exfalso. rewrite get_bit_bounds in Halloc_pre by exact Hge. discriminate. }
+      pose proof (Hwf fidx Hfidx_bound Halloc_pre) as Hvalid_from_wf.
+      rewrite Hvalid_check in Hvalid_from_wf. discriminate.
+    
+    + apply negb_false_iff in Hvalid_check.
+      
+      destruct (negb (get_bit (allocated alloc) fidx)) eqn:Halloc_check.
+      
+      * exfalso.
+        apply negb_true_iff in Halloc_check.
+        rewrite Hfidx_transfer in Hfidx_pre. injection Hfidx_pre as Hfidx_eq. subst fidx_pre.
+        rewrite Halloc_pre in Halloc_check. discriminate.
+      
+      * apply negb_false_iff in Halloc_check.
+        
+        assert (Hvar_input : var_lookup (ps_vars (step_forward (step_forward (step_forward (step_forward p_ref))))) self = Some (VarMutOwned a lt)).
+        {
+          rewrite !step_forward_preserves_var_lookup.
+          apply (read_mut_allocator_preserves_original_var p p_ref self ref_var 6 alloc a lt Hread_mut Hvar_lookup).
+        }
+        assert (Hactive_input : lifetime_active (step_forward (step_forward (step_forward (step_forward p_ref)))) lt = true).
+        {
+          unfold lifetime_active. simpl.
+          rewrite (read_mut_allocator_preserves_step p p_ref self ref_var 6 alloc Hread_mut).
+          unfold lifetime_active in Hactive. apply andb_true_iff in Hactive.
+          destruct Hactive as [Hstart Hstep].
+          apply andb_true_iff. split.
+          - apply Nat.leb_le. apply Nat.leb_le in Hstart. lia.
+          - apply Nat.ltb_lt. apply Nat.ltb_lt in Hstep. lia.
+        }
+        assert (Href_input : (exists lt_ref, var_lookup (ps_vars (step_forward (step_forward (step_forward (step_forward p_ref))))) ref_var = Some (VarMutRef a lt_ref) /\
+                                    exists cell, heap_lookup (ps_heap (step_forward (step_forward (step_forward (step_forward p_ref))))) a = Some (cell, LocMut [lt_ref]))).
+        {
+          pose proof (read_mut_allocator_ref_and_heap p p_ref self ref_var 6 alloc a lt
+                        Hread_mut Hvar_lookup (ex_intro _ m Hheap)) as [lt_ref [Hvar_ref Hheap_ref]].
+          exists lt_ref. split.
+          - rewrite !step_forward_preserves_var_lookup. exact Hvar_ref.
+          - destruct Hheap_ref as [cell_ref Hheap_ref].
+            rewrite !step_forward_preserves_heap_lookup.
+            exists cell_ref. exact Hheap_ref.
+        }
+        
+        destruct (write_and_drop _ _ _) as [p''| |] eqn:Hwrite.
+        
+        -- split.
+           
+           ++ exists alloc. split; [exact Hread|].
+              exists fidx. split; [exact Hfidx_transfer|].
+              split; [exact Hvalid_check|exact Halloc_check].
+           
+           ++ pose proof (write_and_drop_allocator_content 
+                            (step_forward (step_forward (step_forward (step_forward p_ref)))) p'' ref_var self
+                            {| allocated := set_bit (allocated alloc) fidx false;
+                               valid := valid alloc;
+                               range := range alloc |} a lt Hwrite Hvar_input Hactive_input Href_input Hneq) 
+                 as [alloc' [Hread' [Halloc' [Hvalid' Hrange']]]].
+              exists alloc'. split; [exact Hread'|].
+              exists fidx. split.
+              ** assert (Hrange_p'_p: range alloc' = range alloc).
+                 { rewrite Hrange'. reflexivity. }
+                 
+                 assert (Hpre_p'': exists a2 lt2 m2, var_lookup (ps_vars p'') self = Some (VarMutOwned a2 lt2) /\
+                               lifetime_active p'' lt2 = true /\
+                               ps_current_step p'' + 2 <= lt_end lt2 /\
+                               heap_lookup (ps_heap p'') a2 = Some (m2, LocOwned)).
+                 {
+                   assert (Hstep_p'' : ps_current_step p'' = 4 + ps_current_step p).
+                   {
+                     rewrite (write_and_drop_preserves_step (step_forward (step_forward (step_forward (step_forward p_ref)))) p'' ref_var _ Hwrite).
+                     simpl. rewrite (read_mut_allocator_preserves_step p p_ref self ref_var 6 alloc Hread_mut).
+                     reflexivity.
+                   }
+                   assert (Hvar_p'' : var_lookup (ps_vars p'') self = Some (VarMutOwned a lt)).
+                   {
+                     apply (write_and_drop_preserves_var_ownership (step_forward (step_forward (step_forward (step_forward p_ref)))) p'' ref_var self _ a lt Hvar_input Hwrite Hneq).
+                   }
+                   assert (Hactive_p'' : lifetime_active p'' lt = true).
+                   {
+                     unfold lifetime_active. rewrite Hstep_p''.
+                     unfold lifetime_active in Hactive. apply andb_true_iff in Hactive.
+                     destruct Hactive as [Hstart Hstep].
+                     apply andb_true_iff. split.
+                     - apply Nat.leb_le. apply Nat.leb_le in Hstart. lia.
+                     - apply Nat.ltb_lt. apply Nat.ltb_lt in Hstep. lia.
+                   }
+                   assert (Hheap_p'' : exists m'', heap_lookup (ps_heap p'') a = Some (m'', LocOwned)).
+                   {
+                     eexists. apply (write_and_drop_restores_loc_owned (step_forward (step_forward (step_forward (step_forward p_ref)))) p'' ref_var _ a Hwrite).
+                     - pose proof (read_mut_allocator_same_addr p p_ref self ref_var 6 alloc a lt Hread_mut Hvar_lookup) as [lt_ref Hlookup_ref].
+                       exists lt_ref. rewrite !step_forward_preserves_var_lookup. exact Hlookup_ref.
+                     - pose proof (read_mut_allocator_heap_state p p_ref self ref_var 6 alloc a lt Hread_mut Hvar_lookup) as Hheap_state.
+                       destruct Hheap_state as [cell [lt_ref_state Hheap_state]].
+                       { exists m. exact Hheap. }
+                       exists lt_ref_state, cell. rewrite !step_forward_preserves_heap_lookup. exact Hheap_state.
+                   }
+                   destruct Hheap_p'' as [m'' Hheap_p''].
+                   exists a, lt, m''. repeat split; auto.
+                   rewrite Hstep_p''. lia.
+                 }
+                 
+                  assert (Hsucc_p'': exists p1_ref v1_ref, @read_shared_allocator S n p'' self 2 = Some (p1_ref, v1_ref, alloc') /\
+                               exists p1_fin, drop_var (step_forward p1_ref) v1_ref = Some p1_fin).
+                  {
+                    destruct Hpre_p'' as [a2 [lt2 [m2 [Hvar_p'' [Hactive_p'' [Hstep_p'' Hheap_p'']]]]]].
+                    apply (read_shared_allocator_succeeds_from_alloc p'' self alloc' Hread').
+                    exists a2, lt2, m2. repeat split; auto.
+                  }
+                  
+                  assert (Hsucc_p: exists p2_ref v2_ref, @read_shared_allocator S n p self 2 = Some (p2_ref, v2_ref, alloc) /\
+                               exists p2_fin, drop_var (step_forward p2_ref) v2_ref = Some p2_fin).
+                  {
+                    destruct Hpre_p as [a0 [lt0 [m0 [Hvar_p [Hactive_p [Hstep_p Hheap_p]]]]]].
+                    apply (read_shared_allocator_succeeds_from_alloc p self alloc Hread).
+                    exists a0, lt0, m0. repeat split; auto.
+                  }
+
+                  pose proof (frame_idx_transfer p'' p self self frame alloc' alloc
+                               Hread' Hread Hrange_p'_p Hsucc_p'' Hsucc_p) as Hidx_eq.
+                  rewrite Hidx_eq. exact Hfidx_transfer.
+                 
+                 
+              ** rewrite Halloc'. simpl.
+                 assert (Hfidx_bound: Uint63.to_nat fidx < to_nat n * u64_bits).
+                 {
+                   destruct (Nat.ltb_spec (Uint63.to_nat fidx) (to_nat n * u64_bits)) as [Hlt|Hge].
+                   - exact Hlt.
+                   - exfalso.
+                     rewrite get_bit_bounds in Hvalid_check by exact Hge.
+                     discriminate.
+                 }
+                 apply get_bit_set_bit_same.
+                 exact Hfidx_bound.
+        
+        -- trivial.
+        
+        -- exfalso.
+           unfold write_and_drop in Hwrite.
+           destruct (write_var _ _ _) as [p_after_write|] eqn:Hwrite_var.
+           ++ destruct (drop_var _ _) as [p_final|] eqn:Hdrop;
+              discriminate Hwrite.
+           ++ discriminate Hwrite.
+  
+  - exfalso.
+    assert (Hsucc_pref: exists p1_ref v1_ref, @read_shared_allocator S n p_ref ref_var 2 = Some (p1_ref, v1_ref, alloc) /\
+                           exists p1_fin, drop_var (step_forward p1_ref) v1_ref = Some p1_fin).
+    {
+      unfold read_mut_allocator in Hread_mut.
+      destruct (let_mut_ref p (self ++ "_mut_ref") self (ps_current_step p + 6)) as [p_let|] eqn:Hlet_mut; [|discriminate].
+      destruct (read_allocator p_let (self ++ "_mut_ref")) eqn:Hread_plet; [|discriminate].
+      injection Hread_mut as Hp_eq Href_eq Halloc_eq.
+      subst p_let ref_var.
+      rewrite Halloc_eq in Hread_plet.
+      
+      unfold let_mut_ref in Hlet_mut.
+      rewrite Hvar_lookup in Hlet_mut.
+      rewrite Hheap in Hlet_mut.
+      destruct (lifetime_contained_in _ _) eqn:Hcont_mut; [|discriminate].
+      injection Hlet_mut as Hp_ref_eq. rewrite <- Hp_ref_eq in *.
+      
+      set (lt_borrow := {| lt_id := ps_next_lifetime_id p; 
+                           lt_start := ps_current_step p; 
+                           lt_end := ps_current_step p + 6 |}).
+
+      apply (read_shared_allocator_succeeds_from_mut_ref _ (self ++ "_mut_ref") alloc Hread_plet).
+      
+      exists a, lt, lt_borrow.
+      repeat split.
+      - simpl. rewrite var_update_eq. reflexivity.
+      - unfold lifetime_active. simpl.
+        apply andb_true_iff. split; [apply Nat.leb_le | apply Nat.ltb_lt]; lia.
+      - simpl. lia.
+      - eexists. split.
+        + simpl. rewrite heap_update_lookup_same. reflexivity.
+        + unfold lifetime_contained_in. simpl. apply andb_true_iff. split; apply Nat.leb_le; lia.
+    }
+
+    assert (Hsucc_p: exists p2_ref v2_ref, @read_shared_allocator S n p self 2 = Some (p2_ref, v2_ref, alloc) /\
+                           exists p2_fin, drop_var (step_forward p2_ref) v2_ref = Some p2_fin).
+    {
+      apply (read_shared_allocator_succeeds_from_alloc p self alloc Hread).
+      exists a, lt, m. repeat split; auto. lia.
+    }
+
+    pose proof (frame_idx_transfer p_ref p ref_var self frame alloc alloc
+                  Hread_pref Hread (eq_refl (range alloc)) Hsucc_pref Hsucc_p) as Hidx_eq.
+    rewrite <- Hidx_eq in Hfidx_pre.
+    rewrite Hfidx in Hfidx_pre. discriminate.
+  
+  - exfalso.
+    
+    assert (Hsucc_pref : exists p1_ref v1_ref, @read_shared_allocator S n p_ref ref_var 2 = Some (p1_ref, v1_ref, alloc) /\
+                           exists p1_fin, drop_var (step_forward p1_ref) v1_ref = Some p1_fin).
+    {
+      unfold read_mut_allocator in Hread_mut.
+      destruct (let_mut_ref p (self ++ "_mut_ref") self (ps_current_step p + 6)) as [p_let|] eqn:Hlet_mut; [|discriminate].
+      destruct (read_allocator p_let (self ++ "_mut_ref")) eqn:Hread_plet; [|discriminate].
+      injection Hread_mut as Hp_eq Href_eq Halloc_eq.
+      subst p_let ref_var.
+      rewrite Halloc_eq in Hread_plet.
+
+      unfold let_mut_ref in Hlet_mut.
+      rewrite Hvar_lookup in Hlet_mut.
+      rewrite Hheap in Hlet_mut.
+      destruct (lifetime_contained_in _ _) eqn:Hcont_mut; [|discriminate].
+      injection Hlet_mut as Hp_ref_eq. rewrite <- Hp_ref_eq in *.
+
+      set (lt_borrow := {| lt_id := ps_next_lifetime_id p; 
+                           lt_start := ps_current_step p; 
+                           lt_end := ps_current_step p + 6 |}).
+
+      apply (read_shared_allocator_succeeds_from_mut_ref _ (self ++ "_mut_ref") alloc Hread_plet).
+      
+      exists a, lt, lt_borrow.
+      repeat split.
+      - simpl. rewrite var_update_eq. reflexivity.
+      - unfold lifetime_active. simpl.
+        apply andb_true_iff. split; [apply Nat.leb_le | apply Nat.ltb_lt]; lia.
+      - simpl. lia.
+      - eexists. split.
+        + simpl. rewrite heap_update_lookup_same. reflexivity.
+        + unfold lifetime_contained_in. simpl. apply andb_true_iff. split; apply Nat.leb_le; lia.
+    }
+    
+    destruct Hsucc_pref as [p1_ref [v1_ref [Hread_shared _]]].
+    apply (frame_idx_not_panic_when_read_shared_succeeds p_ref ref_var frame p1_ref v1_ref alloc Hread_shared).
+    exact Hfidx.
 Qed.
-*)
