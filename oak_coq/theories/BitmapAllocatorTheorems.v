@@ -339,6 +339,9 @@ Proof.
     destruct (lifetime_eq loc_lt l); try discriminate.
     destruct (lifetime_contained_in _ _); try discriminate.
     injection Hlet as Hlet. subst p'. simpl. reflexivity.
+  - destruct (heap_lookup (ps_heap p) a) as [[cell state]|] eqn:Hheap; try discriminate.
+    destruct (lifetime_contained_in _ _) eqn:Hcontained; try discriminate.
+    injection Hlet as Hlet. subst p'. simpl. reflexivity.
 Qed.
 
 (** Helper: let_mut_ref preserves current_step *)
@@ -360,6 +363,9 @@ Proof.
     destruct l0 as [|loc_lt rest_stack]; try discriminate.
     destruct (lifetime_eq loc_lt l); try discriminate.
     destruct (lifetime_contained_in _ _); try discriminate.
+    injection Hlet as Hlet. subst p'. simpl. reflexivity.
+  - destruct (heap_lookup (ps_heap p) a) as [[cell state]|] eqn:Hheap; try discriminate.
+    destruct (lifetime_contained_in _ _) eqn:Hcontained; try discriminate.
     injection Hlet as Hlet. subst p'. simpl. reflexivity.
 Qed.
 
@@ -439,6 +445,19 @@ Proof.
           discriminate.
         }
         subst b. rewrite Hactive. reflexivity.
+
+    - destruct (lifetime_contained_in _ _) eqn:Hcont; [|discriminate].
+      injection Hlet as Hp_eq. subst p'.
+      transitivity (Some (cell_value cell)).
+      + simpl. rewrite var_update_eq.
+        unfold lifetime_active. simpl.
+        replace (ps_current_step p <=? ps_current_step p)%nat with true by (symmetry; apply Nat.leb_le; lia).
+        replace (ps_current_step p <? borrow_end)%nat with true by (symmetry; apply Nat.ltb_lt; assumption).
+        simpl.
+        rewrite heap_update_lookup_same.
+        destruct state; simpl;
+          (unfold lifetime_eq; simpl; rewrite Nat.eqb_refl; reflexivity).
+      + unfold read_var. reflexivity.
   }
   rewrite Hsame.
   exact Hread.
@@ -492,7 +511,7 @@ Proof.
 
   unfold let_mut_ref in Hlet.
   destruct (var_lookup (ps_vars p) self) as [v_self|] eqn:Hlookup_self; try discriminate.
-  destruct v_self as [a_self lt_self|a_self lt_self| |a_self lt_self]; try discriminate.
+  destruct v_self as [a_self lt_self|a_self lt_self| |a_self lt_self| |a_self lt_self]; try discriminate.
 
   - destruct (heap_lookup (ps_heap p) a_self) as [[cell state]|] eqn:Hheap; try discriminate.
     destruct state; try discriminate.
@@ -531,6 +550,17 @@ Proof.
     
     unfold lifetime_eq. simpl. rewrite Nat.eqb_refl.
     eexists. reflexivity.
+
+  - destruct (heap_lookup (ps_heap p) a_self) as [[cell state]|] eqn:Hheap; try discriminate.
+    destruct (lifetime_contained_in _ _) eqn:Hcont; [|discriminate].
+    injection Hlet as Hp_mid_eq. subst p_mid.
+    unfold step_forward, drop_var.
+    simpl.
+    rewrite var_update_eq.
+    simpl.
+    rewrite heap_update_lookup_same.
+    destruct state;
+      (unfold lifetime_eq; simpl; rewrite Nat.eqb_refl; eexists; reflexivity).
 Qed.
 
 Lemma read_mut_allocator_preserves_step {S : PageSize} {n : Uint63.int}
@@ -684,6 +714,8 @@ Proof.
       destruct state; try discriminate.
       destruct l0 as [|loc_lt rest]; try discriminate.
       destruct (lifetime_eq loc_lt l); try discriminate.
+      injection Hwrite_var as Heq. subst p_after_write. reflexivity.
+    - destruct (heap_lookup (ps_heap p) a) as [[cell state]|]; [|discriminate].
       injection Hwrite_var as Heq. subst p_after_write. reflexivity. }
   assert (Hstep2: ps_current_step p' = ps_current_step p_after_write).
   { unfold drop_var in Hdrop.
@@ -705,7 +737,9 @@ Proof.
       destruct state; try discriminate.
       destruct l0 as [|loc_lt rest]; try discriminate.
       destruct (lifetime_eq loc_lt l); try discriminate.
-      injection Hdrop as Heq. subst p'. reflexivity. }
+      injection Hdrop as Heq. subst p'. reflexivity.
+    - injection Hdrop as Heq. subst p'. reflexivity.
+    - injection Hdrop as Heq. subst p'. reflexivity. }
   rewrite Hstep2, Hstep1. reflexivity.
 Qed.
 
@@ -833,7 +867,7 @@ Proof.
   unfold let_shared_ref in Hr.
   
   destruct (var_lookup (ps_vars p) v) as [own|] eqn:Hvar; try discriminate.
-  destruct own as [a lt|a lt|a lt|a lt].
+  destruct own as [a lt|a lt|a lt|a lt|a lt|a lt].
   - destruct (heap_lookup (ps_heap p) a) as [[cell state]|] eqn:Hheap; try discriminate.
     destruct state.
     + destruct (make_shared_borrow _ _ _ _ _ _ _) as [p_ref_val|] eqn:Hmake; try discriminate.
@@ -945,7 +979,25 @@ Proof.
       destruct (lifetime_eq {| lt_id := ps_next_lifetime_id p; lt_start := ps_current_step p; lt_end := ps_current_step p + 2 |} 
                             {| lt_id := ps_next_lifetime_id p; lt_start := ps_current_step p; lt_end := ps_current_step p + 2 |}) eqn:Heq_self.
       * eexists. reflexivity.
-      * exfalso. unfold lifetime_eq in Heq_self. rewrite Nat.eqb_refl in Heq_self. discriminate.   
+      * exfalso. unfold lifetime_eq in Heq_self. rewrite Nat.eqb_refl in Heq_self. discriminate.
+
+  - destruct (heap_lookup (ps_heap p) a) as [[cell state]|] eqn:Hheap; try discriminate.
+    destruct (lifetime_contained_in _ _) eqn:Hcont; try discriminate.
+    destruct (read_allocator _ _) as [alloc_val|] eqn:Hread_alloc; try discriminate.
+    injection Hr as Hp_eq Hv_eq Halloc_eq.
+    subst p_ref v_ref alloc_val.
+    unfold drop_var. simpl.
+    rewrite var_update_eq. rewrite heap_update_lookup_same.
+    simpl. eexists. reflexivity.
+
+  - destruct (heap_lookup (ps_heap p) a) as [[cell state]|] eqn:Hheap; try discriminate.
+    destruct (lifetime_contained_in _ _) eqn:Hcont; try discriminate.
+    destruct (read_allocator _ _) as [alloc_val|] eqn:Hread_alloc; try discriminate.
+    injection Hr as Hp_eq Hv_eq Halloc_eq.
+    subst p_ref v_ref alloc_val.
+    unfold drop_var. simpl.
+    rewrite var_update_eq. rewrite heap_update_lookup_same.
+    simpl. eexists. reflexivity.
 Qed.
 
 (** frame only panics when read_shared_allocator fails *)
@@ -1491,7 +1543,7 @@ Proof.
   unfold read_var in Hread, Hread_let.
   unfold let_shared_ref in Hlet.
   destruct (var_lookup (ps_vars p) v) as [own|] eqn:Hvar; [|discriminate].
-  destruct own as [a lt_v|a lt_v|a lt_v|a lt_v]; try discriminate.
+  destruct own as [a lt_v|a lt_v|a lt_v|a lt_v|a lt_v|a lt_v]; try discriminate.
   - destruct (lifetime_active p lt_v) eqn:Hactive; [|discriminate].
     destruct (heap_lookup (ps_heap p) a) as [[cell state]|] eqn:Hheap; try discriminate.
     destruct state as [| lts |]; try discriminate.
@@ -1591,6 +1643,30 @@ Proof.
       assert (HeqS_refl: Seq = eq_refl) by (apply UIP_dec; apply PageSize_eq_dec).
       clear HeqS_refl Seq. simpl in Hread_let.
       congruence.
+  - destruct (heap_lookup (ps_heap p) a) as [[cell state]|] eqn:Hheap; try discriminate.
+    destruct (lifetime_contained_in _ _) eqn:Hcont; [|discriminate].
+    injection Hlet as Heq. subst p_let. simpl in Hread_let.
+    rewrite var_update_eq in Hread_let. simpl in Hread_let.
+    unfold lifetime_active in Hread_let.
+    simpl in Hread_let.
+    replace (ps_current_step p <=? ps_current_step p)%nat with true in Hread_let by (symmetry; apply Nat.leb_le; lia).
+    replace (ps_current_step p <? ps_current_step p + 2)%nat with true in Hread_let by (symmetry; apply Nat.ltb_lt; lia).
+    simpl in Hread_let.
+    rewrite heap_update_lookup_same in Hread_let.
+    simpl in Hread_let.
+    congruence.
+  - destruct (heap_lookup (ps_heap p) a) as [[cell state]|] eqn:Hheap; try discriminate.
+    destruct (lifetime_contained_in _ _) eqn:Hcont; [|discriminate].
+    injection Hlet as Heq. subst p_let. simpl in Hread_let.
+    rewrite var_update_eq in Hread_let. simpl in Hread_let.
+    unfold lifetime_active in Hread_let.
+    simpl in Hread_let.
+    replace (ps_current_step p <=? ps_current_step p)%nat with true in Hread_let by (symmetry; apply Nat.leb_le; lia).
+    replace (ps_current_step p <? ps_current_step p + 2)%nat with true in Hread_let by (symmetry; apply Nat.ltb_lt; lia).
+    simpl in Hread_let.
+    rewrite heap_update_lookup_same in Hread_let.
+    simpl in Hread_let.
+    congruence.
 Qed.
 
 (** If read_allocator succeeds and the variable conditions hold,
