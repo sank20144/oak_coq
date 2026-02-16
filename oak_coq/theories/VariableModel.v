@@ -50,7 +50,9 @@ Inductive var_ownership : Type :=
   | VarOwned : addr -> lifetime -> var_ownership        (* Immutable owned value *)
   | VarMutOwned : addr -> lifetime -> var_ownership     (* Mutable owned value *)
   | VarSharedRef : addr -> lifetime -> var_ownership    (* Shared reference *)
-  | VarMutRef : addr -> lifetime -> var_ownership.      (* Mutable reference *)
+  | VarMutRef : addr -> lifetime -> var_ownership       (* Mutable reference *)
+  | VarRawPtrConst : addr -> lifetime -> var_ownership  (* *const T, lifetime = provenance *)
+  | VarRawPtrMut : addr -> lifetime -> var_ownership.   (* *mut T, lifetime = provenance *)
 
 Inductive location_state : Type :=
   | LocOwned : location_state                          (* No active borrows *)
@@ -228,6 +230,24 @@ Definition let_shared_ref (s : prog_state) (ref_var : var_name) (owned_var : var
           else None
       | _ => None
       end
+  | Some (VarRawPtrConst a prov) | Some (VarRawPtrMut a prov) =>
+      (* Raw pointers bypass borrow checker — any location_state is acceptable *)
+      match heap_lookup (ps_heap s) a with
+      | Some (cell, state) =>
+          let lt_id := ps_next_lifetime_id s in
+          let borrow_lt := mk_lifetime lt_id (ps_current_step s) borrow_end in
+          if lifetime_contained_in borrow_lt prov then
+            let new_lts := match state with
+                           | LocOwned => [borrow_lt]
+                           | LocShared lts => borrow_lt :: lts
+                           | LocMut lts => borrow_lt :: lts
+                           end in
+            let h' := heap_update (ps_heap s) a cell (LocShared new_lts) in
+            let vars' := var_update (ps_vars s) ref_var (VarSharedRef a borrow_lt) in
+            Some (mk_prog_state h' vars' (ps_next_addr s) (S lt_id) (ps_current_step s))
+          else None
+      | None => None
+      end
   | _ => None
   end.
 
@@ -260,6 +280,24 @@ Definition let_mut_ref (s : prog_state) (ref_var : var_name) (owned_var : var_na
             else None
           else None
       | _ => None
+      end
+  | Some (VarRawPtrMut a prov) =>
+      (* Raw mut pointer bypasses borrow checker — any location_state *)
+      match heap_lookup (ps_heap s) a with
+      | Some (cell, state) =>
+          let lt_id := ps_next_lifetime_id s in
+          let borrow_lt := mk_lifetime lt_id (ps_current_step s) borrow_end in
+          if lifetime_contained_in borrow_lt prov then
+            let new_state := match state with
+                             | LocOwned => LocMut [borrow_lt]
+                             | LocMut lts => LocMut (borrow_lt :: lts)
+                             | LocShared _ => LocMut [borrow_lt]  (* Override shared borrows — unsafe *)
+                             end in
+            let h' := heap_update (ps_heap s) a cell new_state in
+            let vars' := var_update (ps_vars s) ref_var (VarMutRef a borrow_lt) in
+            Some (mk_prog_state h' vars' (ps_next_addr s) (S lt_id) (ps_current_step s))
+          else None
+      | None => None
       end
   | _ => None
   end.
@@ -303,6 +341,12 @@ Definition read_var (s : prog_state) (var : var_name) : option value :=
         | _ => None
         end
       else None
+  | Some (VarRawPtrConst a _) | Some (VarRawPtrMut a _) =>
+      (* Raw pointers bypass borrow checker — read from any location_state *)
+      match heap_lookup (ps_heap s) a with
+      | Some (cell, _) => Some (cell_value cell)
+      | None => None
+      end
   | None => None
   end.
 
@@ -331,6 +375,15 @@ Definition write_var (s : prog_state) (var : var_name) (val : value) : option pr
         | _ => None
         end
       else None
+  | Some (VarRawPtrMut a _) =>
+      (* Raw mut pointer bypasses borrow checker — write preserving location_state *)
+      match heap_lookup (ps_heap s) a with
+      | Some (_, state) =>
+          let cell' := mk_cell val in
+          let h' := heap_update (ps_heap s) a cell' state in
+          Some (mk_prog_state h' (ps_vars s) (ps_next_addr s) (ps_next_lifetime_id s) (ps_current_step s))
+      | None => None
+      end
   | _ => None
   end.
 
@@ -373,6 +426,10 @@ Definition drop_var (s : prog_state) (var : var_name) : option prog_state :=
           else None
       | _ => None
       end
+  | Some (VarRawPtrConst _ _) | Some (VarRawPtrMut _ _) =>
+      (* Raw pointer drop — just remove from env, no heap changes *)
+      let vars' := var_remove (ps_vars s) var in
+      Some (mk_prog_state (ps_heap s) vars' (ps_next_addr s) (ps_next_lifetime_id s) (ps_current_step s))
   | None => None
   end.
 
@@ -396,6 +453,10 @@ Definition move_var (s : prog_state) (dest : var_name) (src : var_name) : option
         | _ => None
         end
       else None
+  | Some ((VarRawPtrConst _ _) as own) | Some ((VarRawPtrMut _ _) as own) =>
+      (* Raw pointers are Copy — create new binding without removing source *)
+      let vars' := var_update (ps_vars s) dest own in
+      Some (mk_prog_state (ps_heap s) vars' (ps_next_addr s) (ps_next_lifetime_id s) (ps_current_step s))
   | _ => None
   end.
 
@@ -412,4 +473,79 @@ Definition copy_var_mut (s : prog_state) (dest : var_name) (src : var_name) (lt_
   match read_var s src with
   | Some val => let_mut_owned s dest val lt_end
   | None => None
+  end.
+
+(** * Raw Pointer Operations *)
+
+(** ** Safety Predicates *)
+Definition raw_ptr_valid (s : prog_state) (a : addr) : Prop :=
+  exists cell state, heap_lookup (ps_heap s) a = Some (cell, state).
+
+Definition raw_ptr_safe_to_deref (s : prog_state) (a : addr) (prov : lifetime) : Prop :=
+  raw_ptr_valid s a /\ lifetime_active s prov = true.
+
+(** ** Conversion to Raw Pointers *)
+
+(** as_const_ptr: create *const T from any readable variable.
+    - From references: always works (just extracts address, no new borrow).
+    - From owned values: needs compatible location_state (LocOwned or LocShared). *)
+Definition as_const_ptr (s : prog_state) (ptr_var src_var : var_name) : option prog_state :=
+  match var_lookup (ps_vars s) src_var with
+  | Some (VarOwned a lt) =>
+      if lifetime_active s lt then
+        match heap_lookup (ps_heap s) a with
+        | Some (_, (LocOwned | LocShared _)) =>
+            let vars' := var_update (ps_vars s) ptr_var (VarRawPtrConst a lt) in
+            Some (mk_prog_state (ps_heap s) vars' (ps_next_addr s) (ps_next_lifetime_id s) (ps_current_step s))
+        | _ => None
+        end
+      else None
+  | Some (VarMutOwned a lt) =>
+      if lifetime_active s lt then
+        match heap_lookup (ps_heap s) a with
+        | Some (_, (LocOwned | LocShared _)) =>
+            let vars' := var_update (ps_vars s) ptr_var (VarRawPtrConst a lt) in
+            Some (mk_prog_state (ps_heap s) vars' (ps_next_addr s) (ps_next_lifetime_id s) (ps_current_step s))
+        | _ => None
+        end
+      else None
+  | Some (VarSharedRef a lt) =>
+      (* Converting &T to *const T — always works, no borrow check *)
+      if lifetime_active s lt then
+        Some (mk_prog_state (ps_heap s)
+          (var_update (ps_vars s) ptr_var (VarRawPtrConst a lt))
+          (ps_next_addr s) (ps_next_lifetime_id s) (ps_current_step s))
+      else None
+  | Some (VarMutRef a lt) =>
+      (* Converting &mut T to *const T — always works, no borrow check *)
+      if lifetime_active s lt then
+        Some (mk_prog_state (ps_heap s)
+          (var_update (ps_vars s) ptr_var (VarRawPtrConst a lt))
+          (ps_next_addr s) (ps_next_lifetime_id s) (ps_current_step s))
+      else None
+  | _ => None
+  end.
+
+(** as_mut_ptr: create *mut T from mutable sources only.
+    - From VarMutRef: always works.
+    - From VarMutOwned: needs LocOwned. *)
+Definition as_mut_ptr (s : prog_state) (ptr_var src_var : var_name) : option prog_state :=
+  match var_lookup (ps_vars s) src_var with
+  | Some (VarMutOwned a lt) =>
+      if lifetime_active s lt then
+        match heap_lookup (ps_heap s) a with
+        | Some (_, LocOwned) =>
+            let vars' := var_update (ps_vars s) ptr_var (VarRawPtrMut a lt) in
+            Some (mk_prog_state (ps_heap s) vars' (ps_next_addr s) (ps_next_lifetime_id s) (ps_current_step s))
+        | _ => None
+        end
+      else None
+  | Some (VarMutRef a lt) =>
+      (* Converting &mut T to *mut T — always works *)
+      if lifetime_active s lt then
+        Some (mk_prog_state (ps_heap s)
+          (var_update (ps_vars s) ptr_var (VarRawPtrMut a lt))
+          (ps_next_addr s) (ps_next_lifetime_id s) (ps_current_step s))
+      else None
+  | _ => None
   end.
