@@ -96,7 +96,7 @@ Definition bitarray_to_list {n : Uint63.int} (bits : BitArray n) : list bool :=
 (** Helper to get total bit capacity *)
 Definition bitarray_capacity (n : Uint63.int) : nat := (to_nat n) * u64_bits.
 
-Compute (bitarray_capacity 4096). (* Should be 262144 bits *)
+(* Compute (bitarray_capacity 4096). Should be 262144 bits *)
 Compute (make_bitarray 4096).
 Compute (set_bit (make_bitarray 2) 65 true). (* Setting bit 65 (second u64, second bit) *)
 Compute count_ones (set_bit (set_bit (make_bitarray 2) 65 true) 66 true). (* Should be 2 *)
