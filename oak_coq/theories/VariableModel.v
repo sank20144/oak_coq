@@ -348,14 +348,14 @@ Definition drop_var (s : prog_state) (var : var_name) : option prog_state :=
       match heap_lookup (ps_heap s) a with
       | Some (cell, LocShared lts) =>
           let lts' := remove_lifetime lts lt in
-          let new_state := if lts' then LocOwned else LocShared lts' in
+          let new_state := match lts' with [] => LocOwned | _ => LocShared lts' end in
           let h' := heap_update (ps_heap s) a cell new_state in
           let vars' := var_remove (ps_vars s) var in
           Some (mk_prog_state h' vars' (ps_next_addr s) (ps_next_lifetime_id s) (ps_current_step s))
       | Some (cell, LocMut (loc_lt :: rest_stack)) =>
           (* Shared reborrow from mutable reference - pop from stack *)
           if lifetime_eq loc_lt lt then
-            let new_state := if rest_stack then LocOwned else LocMut rest_stack in
+            let new_state := match rest_stack with [] => LocOwned | _ => LocMut rest_stack end in
             let h' := heap_update (ps_heap s) a cell new_state in
             let vars' := var_remove (ps_vars s) var in
             Some (mk_prog_state h' vars' (ps_next_addr s) (ps_next_lifetime_id s) (ps_current_step s))
@@ -366,7 +366,7 @@ Definition drop_var (s : prog_state) (var : var_name) : option prog_state :=
       match heap_lookup (ps_heap s) a with
       | Some (cell, LocMut (loc_lt :: rest_stack)) =>
           if lifetime_eq loc_lt lt then
-            let new_state := if rest_stack then LocOwned else LocMut rest_stack in
+            let new_state := match rest_stack with [] => LocOwned | _ => LocMut rest_stack end in
             let h' := heap_update (ps_heap s) a cell new_state in
             let vars' := var_remove (ps_vars s) var in
             Some (mk_prog_state h' vars' (ps_next_addr s) (ps_next_lifetime_id s) (ps_current_step s))
