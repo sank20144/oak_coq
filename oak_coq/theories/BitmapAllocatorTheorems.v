@@ -2461,8 +2461,10 @@ Proof.
   - reflexivity.
 Qed.
 
+(* Initial allocator state*)
+
 (** ** A freshly created allocator satisfies allocator_wf *)
-Theorem new_allocator_wf {S : PageSize} (n : Uint63.int)
+Lemma new_allocator_wf {S : PageSize} (n : Uint63.int)
     (p : prog_state) (var : var_name) (r : PhysFrameRange S) (lt_end : nat) :
   match new_allocator n p var r lt_end with
   | Some (p', _) =>
@@ -2514,7 +2516,7 @@ Proof.
 Qed.
 
 (** ** A freshly created allocator satisfies the ownership preconditions *)
-Theorem new_allocator_satisfies_precond {S : PageSize} (n : Uint63.int)
+Lemma new_allocator_satisfies_precond {S : PageSize} (n : Uint63.int)
     (p : prog_state) (var : var_name) (r : PhysFrameRange S) (lt_end_param : nat) :
   ps_current_step p + 6 < lt_end_param ->
   match new_allocator n p var r lt_end_param with
@@ -2583,7 +2585,7 @@ Proof.
 Qed.
 
 (** ** mark_valid (with is_valid = true) preserves allocator_wf *)
-Theorem mark_valid_true_preserves_wf {S : PageSize} {n : Uint63.int}
+Lemma mark_valid_true_preserves_wf {S : PageSize} {n : Uint63.int}
     (p : prog_state) (self : var_name) (frame_range : PhysFrameRange S) :
 
   (exists alloc, @read_allocator S n p self = Some alloc /\
@@ -2679,7 +2681,7 @@ Proof.
 Qed.
 
 (** ** mark_valid preserves the ownership preconditions **)
-Theorem mark_valid_preserves_precond {S : PageSize} {n : Uint63.int}
+Lemma mark_valid_preserves_precond {S : PageSize} {n : Uint63.int}
     (p : prog_state) (self : var_name) (frame_range : PhysFrameRange S)
     (is_valid : bool) :
 
@@ -2779,4 +2781,236 @@ Proof.
     unfold step_forward in Hstep_p''. simpl in Hstep_p''.
     lia.
   - exact Hheap_p''.
+Qed.
+
+(** fill with false preserves bits that are already false **)
+Lemma fill_false_preserves_false_bits {n : Uint63.int}
+    (bits : BitArray n) (start_idx end_idx : nat) (idx : Uint63.int) :
+  get_bit bits idx = false ->
+  get_bit (@fill n bits start_idx end_idx false) idx = false.
+Proof.
+  intros Hbit.
+  unfold fill.
+  revert bits Hbit.
+  generalize (map (fun k : nat => Uint63.of_Z (Z.of_nat k))
+                  (seq start_idx
+                     (if Nat.leb start_idx end_idx
+                      then S (end_idx - start_idx)
+                      else 0))).
+  intro indices.
+  induction indices as [| i rest IH]; intros bits Hbit.
+  - simpl. exact Hbit.
+  - simpl. apply IH.
+    destruct (Uint63.eqb i idx) eqn:Heqb.
+    + apply Uint63.eqb_spec in Heqb. subst.
+      destruct (Uint63.to_nat idx <? Uint63.to_nat n * u64_bits)%nat eqn:Hb.
+      * apply Nat.ltb_lt in Hb.
+        rewrite get_bit_set_bit_same; [reflexivity | assumption].
+      * apply Nat.ltb_ge in Hb.
+        rewrite set_bit_bounds; [exact Hbit | exact Hb].
+    + assert (Hneq : i <> idx).
+      { intro Heq. subst. rewrite Uint63.eqb_refl in Heqb. discriminate. }
+      rewrite get_bit_set_bit_diff; [exact Hbit | exact Hneq].
+Qed.
+
+Lemma fold_left_set_false_neq {n : Uint63.int}
+    (indices : list Uint63.int) (idx : Uint63.int) :
+  (forall i, In i indices -> Uint63.eqb i idx = false) ->
+  forall (init : BitArray n),
+  get_bit (fold_left (fun acc j => set_bit acc j false) indices init) idx
+  = get_bit init idx.
+Proof.
+  intro Hall.
+  induction indices as [|hd tl IH].
+  - intro init. simpl. reflexivity.
+  - intro init. simpl.
+    rewrite IH.
+    + assert (Hneq : hd <> idx).
+      { intro Heq. subst.
+        assert (Hhd_in : In idx (idx :: tl)) by (left; reflexivity).
+        specialize (Hall idx Hhd_in).
+        rewrite Uint63.eqb_refl in Hall. discriminate. }
+      rewrite get_bit_set_bit_diff; [reflexivity | exact Hneq].
+    + intros i Hin. apply Hall. right. exact Hin.
+Qed.
+
+(** ** fill false is identity outside its range, provided end_idx < wB **)  
+Lemma fill_false_identity_outside {n : Uint63.int}
+    (bits : BitArray n) (start_idx end_idx : nat) (idx : Uint63.int) :
+  (end_idx < Z.to_nat Uint63.wB)%nat ->
+  (Uint63.to_nat idx < start_idx \/ end_idx < Uint63.to_nat idx)%nat ->
+  get_bit (@fill n bits start_idx end_idx false) idx = get_bit bits idx.
+Proof.
+  intros Hwb_bound Hout.
+  unfold fill.
+  apply fold_left_set_false_neq.
+  intros i Hin.
+  apply in_map_iff in Hin.
+  destruct Hin as [k [Hi_eq Hk_in]].
+  simpl in Hi_eq.
+  apply in_seq in Hk_in.
+  destruct (Uint63.eqb i idx) eqn:Heqb; [| reflexivity].
+  exfalso.
+  apply Uint63.eqb_spec in Heqb.
+  rewrite Heqb in Hi_eq.
+  pose proof (f_equal Uint63.to_Z Hi_eq) as HkZ.
+  rewrite Uint63.of_Z_spec in HkZ.
+  destruct Hk_in as [Hk_lo Hk_hi].
+  destruct (Nat.leb start_idx end_idx) eqn:Hle.
+  - apply Nat.leb_le in Hle.
+    assert (Hk_lt_wB : k < Z.to_nat Uint63.wB) by lia.
+    assert (HkZ_small : (Z.of_nat k < Uint63.wB)%Z).
+    { apply Nat2Z.inj_lt in Hk_lt_wB.
+      rewrite Z2Nat.id in Hk_lt_wB by (unfold Uint63.wB; simpl; lia).
+      exact Hk_lt_wB. }
+    rewrite Z.mod_small in HkZ by lia.
+    assert (Hto_nat : Uint63.to_nat idx = k).
+    { unfold Uint63.to_nat. rewrite <- HkZ. apply Nat2Z.id. }
+    destruct Hout as [Hlt | Hgt]; lia.
+  - simpl in Hk_hi. lia.
+Qed.
+
+Lemma allocator_wf_fill_valid_false {S : PageSize} {n : Uint63.int}
+    (alloc : BitmapAllocator S n) (start_idx end_idx : nat) :
+  (end_idx < Z.to_nat Uint63.wB)%nat ->
+  (forall idx : Uint63.int,
+      (start_idx <= Uint63.to_nat idx /\ Uint63.to_nat idx <= end_idx)%nat ->
+      get_bit (allocated alloc) idx = false) ->
+  allocator_wf alloc ->
+  allocator_wf (mkBitmapAllocator
+                  (allocated alloc)
+                  (@fill n (valid alloc) start_idx end_idx false)
+                  (range alloc)).
+Proof.
+  intros Hwb_bound Hnot_alloc Hwf.
+  unfold allocator_wf in *.
+  intros idx Hbound Halloc_idx.
+  simpl in *.
+  destruct (Nat.leb start_idx (Uint63.to_nat idx) &&
+            Nat.leb (Uint63.to_nat idx) end_idx)%nat eqn:Hrange.
+  - apply andb_true_iff in Hrange.
+    destruct Hrange as [Hlo_b Hhi_b].
+    apply Nat.leb_le in Hlo_b, Hhi_b.
+    rewrite (Hnot_alloc idx (conj Hlo_b Hhi_b)) in Halloc_idx. discriminate.
+  - apply andb_false_iff in Hrange.
+    assert (Hout : (Uint63.to_nat idx < start_idx \/ end_idx < Uint63.to_nat idx)%nat).
+    { destruct Hrange as [Hlo | Hhi].
+      - left. apply Nat.leb_nle in Hlo. lia.
+      - right. apply Nat.leb_nle in Hhi. lia. }
+    rewrite (fill_false_identity_outside _ _ _ _ Hwb_bound Hout).
+    exact (Hwf idx Hbound Halloc_idx).
+Qed.
+
+(** ** mark_valid (with is_valid = false) preserves allocator_wf**) 
+Lemma mark_valid_false_preserves_wf {S : PageSize} {n : Uint63.int}
+    (p : prog_state) (self : var_name) (frame_range : PhysFrameRange S) :
+
+  (exists alloc, @read_allocator S n p self = Some alloc /\
+    @allocator_wf S n alloc) ->
+
+  (exists a lt m, var_lookup (ps_vars p) self = Some (VarMutOwned a lt) /\
+                  lifetime_active p lt = true /\
+                  ps_current_step p + 6 <= lt_end lt /\
+                  heap_lookup (ps_heap p) a = Some (m, LocOwned)) ->
+
+  (forall p_ref ref_var alloc (start_idx end_idx : Uint63.int),
+      @read_mut_allocator S n p self 6 = Some (p_ref, ref_var, alloc) ->
+      @frame_idx S n p_ref ref_var (start_frame S frame_range) = Ok start_idx ->
+      @frame_idx S n p_ref ref_var (end_frame S frame_range)   = Ok end_idx ->
+      forall idx : Uint63.int,
+        (Z.to_nat (Uint63.to_Z start_idx) <= Uint63.to_nat idx /\
+         Uint63.to_nat idx <= Z.to_nat (Uint63.to_Z end_idx))%nat ->
+        get_bit (allocated alloc) idx = false) ->
+
+  match @mark_valid S n p self frame_range false with
+  | Ok p' =>
+      exists alloc', @read_allocator S n p' self = Some alloc' /\
+        @allocator_wf S n alloc'
+  | Err   => True
+  | Panic => True
+  end.
+Proof.
+  intros [alloc [Hread Hwf]] Hprecond Hno_alloc.
+  destruct Hprecond as [a [lt [m [Hvar_lookup [Hactive [Hstep_bound Hheap]]]]]].
+  unfold mark_valid.
+
+  destruct (@read_mut_allocator S n p self 6) as [[[p_ref ref_var] alloc_read]|] eqn:Hread_mut.
+  2: { trivial. }
+
+  assert (H6pos : 6 > 0) by lia.
+  pose proof (read_mut_allocator_preserves_content p self 6 alloc H6pos Hread) as Hpres.
+  rewrite Hread_mut in Hpres.
+  destruct Hpres as [Halloc_eq [Hvalid_eq Hrange_eq]].
+  assert (Heq_alloc : alloc_read = alloc).
+  { destruct alloc, alloc_read; simpl in *; subst; reflexivity. }
+  subst alloc_read.
+
+  assert (Hneq : ref_var <> self).
+  { pose proof (read_mut_allocator_ref_var_diff p p_ref self ref_var 6 alloc Hread_mut) as Heq_ref.
+    rewrite Heq_ref. apply string_append_suffix_neq. discriminate. }
+
+  destruct (@frame_idx S n p_ref ref_var (start_frame S frame_range)) as [start_idx| |] eqn:Hfidx_start;
+  destruct (@frame_idx S n p_ref ref_var (end_frame S frame_range))   as [end_idx  | |] eqn:Hfidx_end;
+  simpl; try trivial.
+
+  destruct (write_and_drop _ _ _) as [p''| |] eqn:Hwrite; try trivial.
+
+  set (new_valid := @fill n (valid alloc)
+                       (Z.to_nat (Uint63.to_Z start_idx))
+                       (Z.to_nat (Uint63.to_Z end_idx))
+                       false).
+
+  assert (Hvar_ss : var_lookup (ps_vars (step_forward (step_forward p_ref))) self
+                    = Some (VarMutOwned a lt)).
+  { rewrite !step_forward_preserves_var_lookup.
+    apply (read_mut_allocator_preserves_original_var p p_ref self ref_var 6 alloc a lt
+             Hread_mut Hvar_lookup). }
+
+  assert (Hactive_ss : lifetime_active (step_forward (step_forward p_ref)) lt = true).
+  { unfold lifetime_active. simpl.
+    rewrite (read_mut_allocator_preserves_step p p_ref self ref_var 6 alloc Hread_mut).
+    unfold lifetime_active in Hactive.
+    apply andb_true_iff in Hactive. destruct Hactive as [Hs He].
+    apply andb_true_iff. split.
+    - apply Nat.leb_le. apply Nat.leb_le in Hs. lia.
+    - apply Nat.ltb_lt. apply Nat.ltb_lt in He. lia. }
+
+  assert (Href_ss : exists lt_ref,
+            var_lookup (ps_vars (step_forward (step_forward p_ref))) ref_var
+              = Some (VarMutRef a lt_ref) /\
+            exists cell, heap_lookup (ps_heap (step_forward (step_forward p_ref))) a
+              = Some (cell, LocMut [lt_ref])).
+  { pose proof (read_mut_allocator_ref_and_heap p p_ref self ref_var 6 alloc a lt
+                  Hread_mut Hvar_lookup (ex_intro _ m Hheap))
+      as [lt_ref [Hvar_ref Hheap_ref]].
+    exists lt_ref. split.
+    - rewrite !step_forward_preserves_var_lookup. exact Hvar_ref.
+    - destruct Hheap_ref as [cell_ref Hheap_ref].
+      rewrite !step_forward_preserves_heap_lookup.
+      exists cell_ref. exact Hheap_ref. }
+
+  pose proof (write_and_drop_allocator_content
+                (step_forward (step_forward p_ref)) p'' ref_var self
+                (mkBitmapAllocator (allocated alloc) new_valid (range alloc))
+                a lt Hwrite Hvar_ss Hactive_ss Href_ss Hneq)
+    as [alloc'' [Hread'' [Halloc'' [Hvalid'' _]]]].
+
+  exists alloc''. split.
+  - exact Hread''.
+  - assert (Hwf' : allocator_wf (mkBitmapAllocator (allocated alloc) new_valid (range alloc))).
+    { apply allocator_wf_fill_valid_false.
+      - unfold new_valid.
+        pose proof (Uint63.to_Z_bounded end_idx) as [_ Hend_lt].
+        unfold Uint63.to_nat.
+        apply Z2Nat.inj_lt; [apply Uint63.to_Z_bounded | apply Uint63.to_Z_bounded].
+      - intros idx Hrange_idx.
+        exact (Hno_alloc p_ref ref_var alloc start_idx end_idx
+                 Hread_mut Hfidx_start Hfidx_end idx Hrange_idx).
+      - exact Hwf. }
+    unfold allocator_wf in *.
+    intros idx Hidx_bound Halloc_idx.
+    simpl in *.
+    rewrite Hvalid''.
+    apply (Hwf' idx Hidx_bound).
+    simpl. rewrite <- Halloc''. exact Halloc_idx.
 Qed.
