@@ -1,12 +1,11 @@
 Require Import Coq.ZArith.ZArith.
-Require Import ZArith.
 Require Import Coq.Bool.Bool.
 Require Import Coq.Lists.List.
 Require Import Lia.
 Require Import Coq.Numbers.Cyclic.Int63.Uint63.
 Require Import Coq.Strings.String.
 Import ListNotations.
-Open Scope string_scope.
+Local Open Scope string_scope.
 From OC Require Import PhysicalMemory.
 From OC Require Import BitArr.
 From OC Require Import VariableModel.

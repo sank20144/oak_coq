@@ -6,5 +6,11 @@ BitArr.v
 VariableModel.v
 BitArrLemmas.v
 BitmapAllocatorCore.v
+BitmapAllocatorArith.v
+BitmapAllocatorModelLemmas.v
+BitmapAllocatorRefLemmas.v
+BitmapAllocatorAllocate.v
+BitmapAllocatorDeallocate.v
+BitmapAllocatorWf.v
 BitmapAllocatorTheorems.v
 

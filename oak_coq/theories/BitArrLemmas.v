@@ -337,8 +337,7 @@ Proof.
   rewrite Heq.
   exact Hpred.
 Qed.
-  
-Search Z.testbit "shiftl".
+
 (** Setting a bit different from current preserves other bits *)
 Lemma get_bit_set_bit_diff : 
   forall {n : Uint63.int} (bits : BitArray n) idx1 idx2 value,
