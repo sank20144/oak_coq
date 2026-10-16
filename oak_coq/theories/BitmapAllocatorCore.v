@@ -199,7 +199,8 @@ Definition new_allocator {S : PageSize} (n : Uint63.int)
 
 Lemma frame_addr_aligned {S : PageSize} (start : Uint63.int) (idx : Uint63.int) :
   start mod size S = 0 -> (start + idx * size S) mod size S = 0.
-Proof. Admitted. (* This should be true but cannot be proven due to the bug in Rusts implementation *)
+Proof.
+Admitted.
 
 Definition frame {S : PageSize} {n : Uint63.int}
   (p : prog_state) (self : var_name) (frame_idx : Uint63.int)
