@@ -1,0 +1,867 @@
+[
+ {
+  "name": "size_nonzero",
+  "file": "PhysicalMemory.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "PageSize_eq_dec",
+  "file": "PhysicalMemory.v",
+  "ending": "Defined",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "eq_length_repeat",
+  "file": "BitArrLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "get_bit_bounds",
+  "file": "BitArrLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "set_bit_bounds",
+  "file": "BitArrLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "get_bit_set_bit_same",
+  "file": "BitArrLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "get_bit_set_bit_different",
+  "file": "BitArrLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "first_one_returns_true",
+  "file": "BitArrLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "get_bit_set_bit_diff",
+  "file": "BitArrLemmas.v",
+  "ending": "Qed",
+  "level": 1,
+  "deps": [
+   "get_bit_bounds",
+   "get_bit_set_bit_different"
+  ]
+ },
+ {
+  "name": "bitnot_get_bit",
+  "file": "BitArrLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "bitand_get_bit",
+  "file": "BitArrLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "count_ones_helper_monotonic",
+  "file": "BitArrLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "count_ones_helper_zero_implies_all_false",
+  "file": "BitArrLemmas.v",
+  "ending": "Qed",
+  "level": 1,
+  "deps": [
+   "count_ones_helper_monotonic"
+  ]
+ },
+ {
+  "name": "count_ones_zero_all_false",
+  "file": "BitArrLemmas.v",
+  "ending": "Qed",
+  "level": 2,
+  "deps": [
+   "count_ones_helper_zero_implies_all_false"
+  ]
+ },
+ {
+  "name": "count_ones_helper_split",
+  "file": "BitArrLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "count_ones_helper_bit_determines_count",
+  "file": "BitArrLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "count_ones_helper_extensional",
+  "file": "BitArrLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "frame_addr_aligned",
+  "file": "BitmapAllocatorCore.v",
+  "ending": "Admitted",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "add_no_overflow",
+  "file": "BitmapAllocatorArith.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "sub_no_underflow",
+  "file": "BitmapAllocatorArith.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "mul_no_overflow",
+  "file": "BitmapAllocatorArith.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "div_exact",
+  "file": "BitmapAllocatorArith.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "first_one_from_zero_lt",
+  "file": "BitmapAllocatorArith.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "first_one_some_implies_nonzero_count",
+  "file": "BitmapAllocatorArith.v",
+  "ending": "Qed",
+  "level": 3,
+  "deps": [
+   "count_ones_zero_all_false",
+   "first_one_from_zero_lt",
+   "first_one_returns_true"
+  ]
+ },
+ {
+  "name": "heap_update_lookup_same",
+  "file": "BitmapAllocatorModelLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "heap_update_lookup_diff",
+  "file": "BitmapAllocatorModelLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "let_mut_ref_preserves_heap_value",
+  "file": "BitmapAllocatorModelLemmas.v",
+  "ending": "Qed",
+  "level": 1,
+  "deps": [
+   "heap_update_lookup_same"
+  ]
+ },
+ {
+  "name": "let_mut_ref_creates_mut_ref",
+  "file": "BitmapAllocatorModelLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "read_var_through_mut_ref",
+  "file": "BitmapAllocatorModelLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "write_var_preserves_vars",
+  "file": "BitmapAllocatorModelLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "drop_var_preserves_vars",
+  "file": "BitmapAllocatorModelLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "var_update_eq",
+  "file": "BitmapAllocatorModelLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "var_update_neq",
+  "file": "BitmapAllocatorModelLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "string_append_suffix_neq",
+  "file": "BitmapAllocatorModelLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "eq_rect_eq_refl",
+  "file": "BitmapAllocatorModelLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "step_forward_preserves_var_lookup",
+  "file": "BitmapAllocatorModelLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "step_forward_preserves_heap_lookup",
+  "file": "BitmapAllocatorModelLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "step_forward_step",
+  "file": "BitmapAllocatorModelLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "uint63_eqb_refl_eq",
+  "file": "BitmapAllocatorModelLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "let_mut_ref_lifetime_id",
+  "file": "BitmapAllocatorModelLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "let_mut_ref_preserves_next_addr",
+  "file": "BitmapAllocatorModelLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "let_mut_ref_preserves_current_step",
+  "file": "BitmapAllocatorModelLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "let_mut_ref_preserves_read_allocator",
+  "file": "BitmapAllocatorRefLemmas.v",
+  "ending": "Qed",
+  "level": 1,
+  "deps": [
+   "PageSize_eq_dec",
+   "heap_update_lookup_same",
+   "var_update_eq"
+  ]
+ },
+ {
+  "name": "read_mut_allocator_preserves_content",
+  "file": "BitmapAllocatorRefLemmas.v",
+  "ending": "Qed",
+  "level": 2,
+  "deps": [
+   "let_mut_ref_preserves_read_allocator"
+  ]
+ },
+ {
+  "name": "read_mut_allocator_ref_droppable",
+  "file": "BitmapAllocatorRefLemmas.v",
+  "ending": "Qed",
+  "level": 1,
+  "deps": [
+   "heap_update_lookup_same",
+   "var_update_eq"
+  ]
+ },
+ {
+  "name": "read_mut_allocator_preserves_step",
+  "file": "BitmapAllocatorRefLemmas.v",
+  "ending": "Qed",
+  "level": 1,
+  "deps": [
+   "let_mut_ref_preserves_current_step"
+  ]
+ },
+ {
+  "name": "frame_idx_of_frame",
+  "file": "BitmapAllocatorRefLemmas.v",
+  "ending": "Admitted",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "frame_idx_depends_on_range",
+  "file": "BitmapAllocatorRefLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "var_lookup_var_remove_diff",
+  "file": "BitmapAllocatorRefLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "write_and_drop_preserves_var_ownership",
+  "file": "BitmapAllocatorRefLemmas.v",
+  "ending": "Qed",
+  "level": 1,
+  "deps": [
+   "drop_var_preserves_vars",
+   "var_lookup_var_remove_diff",
+   "write_var_preserves_vars"
+  ]
+ },
+ {
+  "name": "write_and_drop_restores_loc_owned",
+  "file": "BitmapAllocatorRefLemmas.v",
+  "ending": "Qed",
+  "level": 1,
+  "deps": [
+   "heap_update_lookup_same",
+   "write_var_preserves_vars"
+  ]
+ },
+ {
+  "name": "write_and_drop_preserves_step",
+  "file": "BitmapAllocatorRefLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "read_mut_allocator_preserves_original_var",
+  "file": "BitmapAllocatorRefLemmas.v",
+  "ending": "Qed",
+  "level": 1,
+  "deps": [
+   "string_append_suffix_neq",
+   "var_update_neq"
+  ]
+ },
+ {
+  "name": "read_mut_allocator_ref_var_diff",
+  "file": "BitmapAllocatorRefLemmas.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "read_shared_allocator_succeeds",
+  "file": "BitmapAllocatorRefLemmas.v",
+  "ending": "Qed",
+  "level": 1,
+  "deps": [
+   "PageSize_eq_dec",
+   "heap_update_lookup_same",
+   "var_update_eq"
+  ]
+ },
+ {
+  "name": "drop_shared_ref_succeeds",
+  "file": "BitmapAllocatorRefLemmas.v",
+  "ending": "Qed",
+  "level": 1,
+  "deps": [
+   "heap_update_lookup_same",
+   "var_update_eq"
+  ]
+ },
+ {
+  "name": "frame_panic_iff_read_shared_fails",
+  "file": "BitmapAllocatorRefLemmas.v",
+  "ending": "Qed",
+  "level": 2,
+  "deps": [
+   "drop_shared_ref_succeeds",
+   "frame_addr_aligned"
+  ]
+ },
+ {
+  "name": "frame_not_panic_when_read_shared_succeeds",
+  "file": "BitmapAllocatorRefLemmas.v",
+  "ending": "Qed",
+  "level": 3,
+  "deps": [
+   "frame_panic_iff_read_shared_fails"
+  ]
+ },
+ {
+  "name": "frame_not_panic_when_accessible",
+  "file": "BitmapAllocatorRefLemmas.v",
+  "ending": "Qed",
+  "level": 4,
+  "deps": [
+   "frame_not_panic_when_read_shared_succeeds",
+   "read_shared_allocator_succeeds"
+  ]
+ },
+ {
+  "name": "read_mut_allocator_same_addr",
+  "file": "BitmapAllocatorRefLemmas.v",
+  "ending": "Qed",
+  "level": 1,
+  "deps": [
+   "var_update_eq"
+  ]
+ },
+ {
+  "name": "read_mut_allocator_heap_state",
+  "file": "BitmapAllocatorRefLemmas.v",
+  "ending": "Qed",
+  "level": 1,
+  "deps": [
+   "heap_update_lookup_same"
+  ]
+ },
+ {
+  "name": "read_allocator_same",
+  "file": "BitmapAllocatorRefLemmas.v",
+  "ending": "Qed",
+  "level": 1,
+  "deps": [
+   "PageSize_eq_dec"
+  ]
+ },
+ {
+  "name": "write_and_drop_allocator_content",
+  "file": "BitmapAllocatorRefLemmas.v",
+  "ending": "Qed",
+  "level": 2,
+  "deps": [
+   "read_allocator_same",
+   "write_and_drop_preserves_step",
+   "write_and_drop_preserves_var_ownership",
+   "write_and_drop_restores_loc_owned"
+  ]
+ },
+ {
+  "name": "read_mut_allocator_ref_and_heap",
+  "file": "BitmapAllocatorRefLemmas.v",
+  "ending": "Qed",
+  "level": 1,
+  "deps": [
+   "heap_update_lookup_same",
+   "var_update_eq"
+  ]
+ },
+ {
+  "name": "read_mut_allocator_setup",
+  "file": "BitmapAllocatorRefLemmas.v",
+  "ending": "Qed",
+  "level": 2,
+  "deps": [
+   "read_mut_allocator_preserves_original_var",
+   "read_mut_allocator_preserves_step",
+   "read_mut_allocator_ref_and_heap",
+   "read_mut_allocator_ref_var_diff",
+   "string_append_suffix_neq"
+  ]
+ },
+ {
+  "name": "allocate_frame_correctness",
+  "file": "BitmapAllocatorAllocate.v",
+  "ending": "Qed",
+  "level": 5,
+  "deps": [
+   "bitand_get_bit",
+   "bitnot_get_bit",
+   "drop_shared_ref_succeeds",
+   "first_one_from_zero_lt",
+   "first_one_returns_true",
+   "frame_idx_depends_on_range",
+   "frame_idx_of_frame",
+   "frame_not_panic_when_accessible",
+   "get_bit_set_bit_same",
+   "let_mut_ref_preserves_read_allocator",
+   "read_mut_allocator_heap_state",
+   "read_mut_allocator_preserves_content",
+   "read_mut_allocator_preserves_original_var",
+   "read_mut_allocator_preserves_step",
+   "read_mut_allocator_ref_and_heap",
+   "read_mut_allocator_ref_droppable",
+   "read_mut_allocator_ref_var_diff",
+   "read_mut_allocator_same_addr",
+   "read_mut_allocator_setup",
+   "read_shared_allocator_succeeds",
+   "step_forward_preserves_heap_lookup",
+   "step_forward_preserves_var_lookup",
+   "string_append_suffix_neq",
+   "write_and_drop_allocator_content",
+   "write_and_drop_preserves_step",
+   "write_and_drop_preserves_var_ownership",
+   "write_and_drop_restores_loc_owned"
+  ]
+ },
+ {
+  "name": "read_shared_allocator_returns_same_alloc",
+  "file": "BitmapAllocatorAllocate.v",
+  "ending": "Qed",
+  "level": 1,
+  "deps": [
+   "PageSize_eq_dec",
+   "heap_update_lookup_same",
+   "var_update_eq"
+  ]
+ },
+ {
+  "name": "read_shared_allocator_succeeds_from_alloc",
+  "file": "BitmapAllocatorAllocate.v",
+  "ending": "Qed",
+  "level": 2,
+  "deps": [
+   "drop_shared_ref_succeeds",
+   "read_shared_allocator_succeeds"
+  ]
+ },
+ {
+  "name": "read_shared_allocator_succeeds_from_mut_ref",
+  "file": "BitmapAllocatorAllocate.v",
+  "ending": "Qed",
+  "level": 1,
+  "deps": [
+   "PageSize_eq_dec",
+   "heap_update_lookup_same",
+   "var_update_eq"
+  ]
+ },
+ {
+  "name": "frame_idx_transfer",
+  "file": "BitmapAllocatorAllocate.v",
+  "ending": "Qed",
+  "level": 1,
+  "deps": [
+   "frame_idx_depends_on_range"
+  ]
+ },
+ {
+  "name": "frame_idx_panic_iff_read_shared_fails",
+  "file": "BitmapAllocatorAllocate.v",
+  "ending": "Qed",
+  "level": 2,
+  "deps": [
+   "drop_shared_ref_succeeds"
+  ]
+ },
+ {
+  "name": "frame_idx_not_panic_when_read_shared_succeeds",
+  "file": "BitmapAllocatorAllocate.v",
+  "ending": "Qed",
+  "level": 3,
+  "deps": [
+   "frame_idx_panic_iff_read_shared_fails"
+  ]
+ },
+ {
+  "name": "deallocate_frame_correctness",
+  "file": "BitmapAllocatorDeallocate.v",
+  "ending": "Qed",
+  "level": 4,
+  "deps": [
+   "frame_idx_not_panic_when_read_shared_succeeds",
+   "frame_idx_transfer",
+   "get_bit_bounds",
+   "get_bit_set_bit_same",
+   "heap_update_lookup_same",
+   "let_mut_ref_preserves_read_allocator",
+   "read_mut_allocator_heap_state",
+   "read_mut_allocator_preserves_content",
+   "read_mut_allocator_preserves_step",
+   "read_mut_allocator_same_addr",
+   "read_mut_allocator_setup",
+   "read_shared_allocator_succeeds_from_alloc",
+   "read_shared_allocator_succeeds_from_mut_ref",
+   "step_forward_preserves_heap_lookup",
+   "step_forward_preserves_var_lookup",
+   "var_update_eq",
+   "write_and_drop_allocator_content",
+   "write_and_drop_preserves_step",
+   "write_and_drop_preserves_var_ownership",
+   "write_and_drop_restores_loc_owned"
+  ]
+ },
+ {
+  "name": "allocator_wf_set_allocated_true",
+  "file": "BitmapAllocatorWf.v",
+  "ending": "Qed",
+  "level": 2,
+  "deps": [
+   "get_bit_set_bit_diff"
+  ]
+ },
+ {
+  "name": "allocator_wf_set_allocated_false",
+  "file": "BitmapAllocatorWf.v",
+  "ending": "Qed",
+  "level": 2,
+  "deps": [
+   "get_bit_set_bit_diff",
+   "get_bit_set_bit_same"
+  ]
+ },
+ {
+  "name": "allocate_frame_preserves_wf",
+  "file": "BitmapAllocatorWf.v",
+  "ending": "Qed",
+  "level": 6,
+  "deps": [
+   "allocate_frame_correctness",
+   "allocator_wf_set_allocated_true",
+   "bitand_get_bit",
+   "bitnot_get_bit",
+   "first_one_from_zero_lt",
+   "first_one_returns_true",
+   "read_mut_allocator_preserves_content",
+   "read_mut_allocator_preserves_step",
+   "read_mut_allocator_ref_droppable",
+   "read_mut_allocator_setup",
+   "step_forward_preserves_heap_lookup",
+   "step_forward_preserves_var_lookup",
+   "write_and_drop_allocator_content"
+  ]
+ },
+ {
+  "name": "deallocate_frame_preserves_wf",
+  "file": "BitmapAllocatorWf.v",
+  "ending": "Qed",
+  "level": 5,
+  "deps": [
+   "allocator_wf_set_allocated_false",
+   "deallocate_frame_correctness",
+   "read_mut_allocator_preserves_content",
+   "read_mut_allocator_setup",
+   "step_forward_preserves_heap_lookup",
+   "step_forward_preserves_var_lookup",
+   "write_and_drop_allocator_content"
+  ]
+ },
+ {
+  "name": "make_bitarray_get_bit_false",
+  "file": "BitmapAllocatorWf.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "new_allocator_wf",
+  "file": "BitmapAllocatorWf.v",
+  "ending": "Qed",
+  "level": 2,
+  "deps": [
+   "heap_update_lookup_same",
+   "make_bitarray_get_bit_false",
+   "read_allocator_same",
+   "var_update_eq"
+  ]
+ },
+ {
+  "name": "new_allocator_satisfies_precond",
+  "file": "BitmapAllocatorWf.v",
+  "ending": "Qed",
+  "level": 1,
+  "deps": [
+   "heap_update_lookup_same",
+   "var_update_eq"
+  ]
+ },
+ {
+  "name": "fill_true_preserves_set_bits",
+  "file": "BitmapAllocatorWf.v",
+  "ending": "Qed",
+  "level": 2,
+  "deps": [
+   "get_bit_set_bit_diff",
+   "get_bit_set_bit_same",
+   "set_bit_bounds"
+  ]
+ },
+ {
+  "name": "mark_valid_true_preserves_wf",
+  "file": "BitmapAllocatorWf.v",
+  "ending": "Qed",
+  "level": 3,
+  "deps": [
+   "fill_true_preserves_set_bits",
+   "read_mut_allocator_preserves_content",
+   "read_mut_allocator_setup",
+   "step_forward_preserves_heap_lookup",
+   "step_forward_preserves_var_lookup",
+   "write_and_drop_allocator_content"
+  ]
+ },
+ {
+  "name": "mark_valid_preserves_precond",
+  "file": "BitmapAllocatorWf.v",
+  "ending": "Qed",
+  "level": 3,
+  "deps": [
+   "read_mut_allocator_preserves_step",
+   "read_mut_allocator_setup",
+   "step_forward_preserves_heap_lookup",
+   "step_forward_preserves_var_lookup",
+   "write_and_drop_preserves_step",
+   "write_and_drop_preserves_var_ownership",
+   "write_and_drop_restores_loc_owned"
+  ]
+ },
+ {
+  "name": "fill_false_preserves_false_bits",
+  "file": "BitmapAllocatorWf.v",
+  "ending": "Qed",
+  "level": 2,
+  "deps": [
+   "get_bit_set_bit_diff",
+   "get_bit_set_bit_same",
+   "set_bit_bounds"
+  ]
+ },
+ {
+  "name": "fold_left_set_false_neq",
+  "file": "BitmapAllocatorWf.v",
+  "ending": "Qed",
+  "level": 2,
+  "deps": [
+   "get_bit_set_bit_diff"
+  ]
+ },
+ {
+  "name": "fill_false_identity_outside",
+  "file": "BitmapAllocatorWf.v",
+  "ending": "Qed",
+  "level": 3,
+  "deps": [
+   "fold_left_set_false_neq"
+  ]
+ },
+ {
+  "name": "allocator_wf_fill_valid_false",
+  "file": "BitmapAllocatorWf.v",
+  "ending": "Qed",
+  "level": 4,
+  "deps": [
+   "fill_false_identity_outside"
+  ]
+ },
+ {
+  "name": "mark_valid_false_preserves_wf",
+  "file": "BitmapAllocatorWf.v",
+  "ending": "Qed",
+  "level": 5,
+  "deps": [
+   "allocator_wf_fill_valid_false",
+   "read_mut_allocator_preserves_content",
+   "read_mut_allocator_setup",
+   "step_forward_preserves_heap_lookup",
+   "step_forward_preserves_var_lookup",
+   "write_and_drop_allocator_content"
+  ]
+ },
+ {
+  "name": "allocated_clear_wf",
+  "file": "BitmapAllocatorWf.v",
+  "ending": "Qed",
+  "level": 0,
+  "deps": []
+ },
+ {
+  "name": "mark_valid_step",
+  "file": "BitmapAllocatorWf.v",
+  "ending": "Qed",
+  "level": 3,
+  "deps": [
+   "read_mut_allocator_preserves_content",
+   "read_mut_allocator_preserves_step",
+   "read_mut_allocator_setup",
+   "step_forward_preserves_heap_lookup",
+   "step_forward_preserves_var_lookup",
+   "write_and_drop_allocator_content",
+   "write_and_drop_preserves_step",
+   "write_and_drop_preserves_var_ownership",
+   "write_and_drop_restores_loc_owned"
+  ]
+ },
+ {
+  "name": "init_fold_inv",
+  "file": "BitmapAllocatorWf.v",
+  "ending": "Qed",
+  "level": 4,
+  "deps": [
+   "mark_valid_step"
+  ]
+ },
+ {
+  "name": "init_allocator_preserves_wf",
+  "file": "BitmapAllocatorWf.v",
+  "ending": "Qed",
+  "level": 5,
+  "deps": [
+   "allocated_clear_wf",
+   "init_fold_inv"
+  ]
+ }
+]

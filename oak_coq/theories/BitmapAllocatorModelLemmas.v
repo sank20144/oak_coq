@@ -29,6 +29,7 @@ Ltac finish_lifetime_active H :=
   [ apply Nat.leb_le; apply Nat.leb_le in hs; lia
   | apply Nat.ltb_lt; apply Nat.ltb_lt in he; lia ].
 
+
 Lemma heap_update_lookup_same (h : heap) (a : addr) (cell : mem_cell) (state : location_state) :
   heap_lookup (heap_update h a cell state) a = Some (cell, state).
 Proof.
@@ -57,28 +58,6 @@ Proof.
     + simpl. destruct (Nat.eqb a' a'') eqn:Heq_a'.
       * reflexivity.
       * apply IH.
-Qed.
-
-(** Helper lemma: let_mut_ref preserves heap values *)
-Lemma let_mut_ref_preserves_heap_value
-  (p p' : prog_state) (ref_var owned_var : var_name) (borrow_end : nat)
-  (a : addr) (cell : mem_cell) :
-  let_mut_ref p ref_var owned_var borrow_end = Some p' ->
-  heap_lookup (ps_heap p) a = Some (cell, LocOwned) ->
-  (exists lt, var_lookup (ps_vars p) owned_var = Some (VarMutOwned a lt)) ->
-  exists new_state, heap_lookup (ps_heap p') a = Some (cell, new_state).
-Proof.
-  intros Hlet Hheap [lt Hvar].
-  unfold let_mut_ref in Hlet.
-  rewrite Hvar in Hlet.
-  rewrite Hheap in Hlet.
-  destruct (lifetime_contained_in _ _) eqn:Hcontained; [|discriminate].
-  injection Hlet as Hlet. subst p'.
-  simpl.
-  exists (LocMut [{| lt_id := ps_next_lifetime_id p; 
-                     lt_start := ps_current_step p; 
-                     lt_end := borrow_end |}]).
-  apply heap_update_lookup_same.
 Qed.
 
 (** Helper lemma: let_mut_ref creates a mutable reference to the same address *)
@@ -278,6 +257,28 @@ Proof.
     destruct (lifetime_eq loc_lt l); try discriminate.
     destruct (lifetime_contained_in _ _); try discriminate.
     injection Hlet as Hlet. subst p'. simpl. reflexivity.
+Qed.
+
+(** Helper lemma: let_mut_ref preserves heap values *)
+Lemma let_mut_ref_preserves_heap_value
+  (p p' : prog_state) (ref_var owned_var : var_name) (borrow_end : nat)
+  (a : addr) (cell : mem_cell) :
+  let_mut_ref p ref_var owned_var borrow_end = Some p' ->
+  heap_lookup (ps_heap p) a = Some (cell, LocOwned) ->
+  (exists lt, var_lookup (ps_vars p) owned_var = Some (VarMutOwned a lt)) ->
+  exists new_state, heap_lookup (ps_heap p') a = Some (cell, new_state).
+Proof.
+  intros Hlet Hheap [lt Hvar].
+  unfold let_mut_ref in Hlet.
+  rewrite Hvar in Hlet.
+  rewrite Hheap in Hlet.
+  destruct (lifetime_contained_in _ _) eqn:Hcontained; [|discriminate].
+  injection Hlet as Hlet. subst p'.
+  simpl.
+  exists (LocMut [{| lt_id := ps_next_lifetime_id p; 
+                     lt_start := ps_current_step p; 
+                     lt_end := borrow_end |}]).
+  apply heap_update_lookup_same.
 Qed.
 
 
