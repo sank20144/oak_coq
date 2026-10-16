@@ -9,3 +9,5 @@
 *.sty
 .envrc
 settings.json
+bench/runs/
+__pycache__/
