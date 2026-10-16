@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-theories="$here/../../oak_coq/theories"
+theories="$(cd "${1:-$here/../../oak_coq/theories}" && pwd)"
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 python3 -I "$here/lemmas.py" "$theories" > "$tmp/lemmas.json"
 python3 -I -c 'import json,sys; print("\n".join(x["name"] for x in json.load(open(sys.argv[1]))))' "$tmp/lemmas.json" > "$tmp/names.txt"
