@@ -1,0 +1,682 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proof Benchmark Dashboard</title>
+<style>
+:root {
+  color-scheme: light;
+  --surface: #fcfcfb; --page: #f9f9f7; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10); --code: #f0efec;
+  --series-1: #2a78d6; --series-1-wash: rgba(42,120,214,0.10); --link: #1c5cab;
+  --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b; --none: #c3c2b7;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface: #1a1a19; --page: #0d0d0d; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10); --code: #242422;
+    --series-1: #3987e5; --series-1-wash: rgba(57,135,229,0.12); --link: #86b6ef; --none: #4a4a46;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface: #1a1a19; --page: #0d0d0d; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10); --code: #242422;
+  --series-1: #3987e5; --series-1-wash: rgba(57,135,229,0.12); --link: #86b6ef; --none: #4a4a46;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+header.top { display: flex; align-items: center; gap: 16px; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--surface); position: sticky; top: 0; z-index: 5; }
+header.top h1 { font-size: 16px; margin: 0; font-weight: 600; }
+header.top .crumbs { color: var(--ink-2); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button, select, input { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; }
+button { cursor: pointer; }
+main { max-width: 1240px; margin: 0 auto; padding: 16px; }
+h2 { font-size: 18px; margin: 24px 0 8px; font-weight: 600; }
+h3 { font-size: 14px; margin: 0 0 8px; font-weight: 600; }
+.sub { color: var(--ink-2); }
+.muted { color: var(--muted); }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+.grid { display: grid; gap: 12px; }
+.charts { grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); }
+.tiles { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.tile .label { color: var(--ink-2); font-size: 13px; }
+.tile .value { font-size: 22px; font-weight: 600; }
+.tile .note { color: var(--muted); font-size: 12px; }
+.hero { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-end; }
+.hero .big { font-size: 52px; font-weight: 600; line-height: 1; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; }
+.kv dt { color: var(--ink-2); }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; white-space: nowrap; }
+th { color: var(--ink-2); font-weight: 600; font-size: 13px; position: sticky; top: 0; background: var(--surface); }
+th.sortable { cursor: pointer; }
+td.num, th.num { text-align: right; }
+td.wrap { white-space: normal; min-width: 240px; }
+tr:hover td { background: var(--code); }
+.badge { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.badge .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--ink-2); font-size: 13px; margin-bottom: 6px; }
+.legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+pre { background: var(--code); border-radius: 6px; padding: 8px 10px; margin: 4px 0; overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; max-height: 420px; overflow-y: auto; }
+details > summary { cursor: pointer; color: var(--ink-2); margin: 6px 0; }
+.flags { margin: 0; padding-left: 0; list-style: none; }
+.flags li { margin: 2px 0; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 12px; }
+.tip { position: fixed; pointer-events: none; background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); font-size: 13px; z-index: 50; max-width: 360px; display: none; }
+.tip .v { font-weight: 600; }
+.tip .k { color: var(--ink-2); }
+.live { border-left: 3px solid var(--series-1); }
+.pulse { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--series-1); margin-right: 6px; animation: pulse 1.4s infinite; }
+@keyframes pulse { 50% { opacity: 0.3; } }
+.matrix-cell:focus { outline: 2px solid var(--ink); }
+svg text { fill: var(--muted); font-size: 11px; }
+svg .ink { fill: var(--ink-2); }
+.empty { color: var(--muted); padding: 24px 0; }
+.card.empty { padding: 24px 16px; }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1><a href="#/">Proof benchmark</a></h1>
+  <div class="crumbs" id="crumbs"></div>
+  <button id="theme" title="Switch between automatic, light and dark">Theme: auto</button>
+</header>
+<main id="app"><p class="empty">Loading...</p></main>
+<div class="tip" id="tip" role="tooltip"></div>
+<script>
+"use strict";
+const RUNS = "../runs/";
+const STATUS = {
+  proved:         { label: "Proved", color: "var(--good)" },
+  proved_flagged: { label: "Proved, but flagged", color: "var(--warning)" },
+  failed:         { label: "Failed", color: "var(--critical)" },
+  rejected:       { label: "Rejected (broke a rule)", color: "var(--serious)" },
+  pending:        { label: "Not attempted yet", color: "var(--none)" },
+};
+// keeps the two light colours apart
+const STACK = ["proved", "proved_flagged", "failed", "rejected"];
+const ui = { filters: {}, sort: { key: "index", dir: 1 }, open: new Set() };
+let timer = null, lastData = "";
+
+function el(tag, props, ...kids) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (v === undefined || v === null || v === false) continue;
+    if (k === "class") n.className = v;
+    else if (k === "style") n.style.cssText = v;
+    else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+    else n.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat(Infinity)) {
+    if (kid === null || kid === undefined || kid === false) continue;
+    n.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  }
+  return n;
+}
+function svg(tag, attrs) {
+  const n = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs || {})) n.setAttribute(k, v);
+  return n;
+}
+async function getJSON(path, fallback) {
+  try {
+    const r = await fetch(path + "?t=" + Date.now(), { cache: "no-store" });
+    if (!r.ok) throw new Error(r.status);
+    return await r.json();
+  } catch (e) { if (fallback !== undefined) return fallback; throw e; }
+}
+async function getText(path) {
+  try { const r = await fetch(path + "?t=" + Date.now()); return r.ok ? await r.text() : ""; } catch { return ""; }
+}
+const compact = n => n == null ? "-" : Math.abs(n) >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M"
+  : Math.abs(n) >= 1e3 ? (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K" : String(Math.round(n * 100) / 100);
+function dur(s) {
+  if (s == null) return "-";
+  s = Math.round(s);
+  if (s < 60) return s + " s";
+  if (s < 3600) return Math.floor(s / 60) + " min " + String(s % 60).padStart(2, "0") + " s";
+  return Math.floor(s / 3600) + " h " + String(Math.floor(s % 3600 / 60)).padStart(2, "0") + " min";
+}
+const money = c => c == null ? "-" : "$" + (c < 10 ? c.toFixed(2) : c.toFixed(0));
+const pct = (a, b) => b ? Math.round(100 * a / b) + "%" : "-";
+const when = t => t ? new Date(t * 1000).toLocaleString() : "-";
+const pad3 = i => String(i).padStart(3, "0");
+const lines = n => n === 1 ? "1 line" : `${n} lines`;
+function badge(status) {
+  const s = STATUS[status] || STATUS.pending;
+  return el("span", { class: "badge" }, el("span", { class: "dot", style: `background:${s.color}` }), s.label);
+}
+function tile(label, value, note) {
+  return el("div", { class: "card tile" }, el("div", { class: "label" }, label), el("div", { class: "value" }, value),
+    note ? el("div", { class: "note" }, note) : null);
+}
+function keep(key, details) {
+  if (ui.open.has(key)) details.open = true;
+  details.addEventListener("toggle", () => details.open ? ui.open.add(key) : ui.open.delete(key));
+  return details;
+}
+function tableOf(cols, rows) {
+  return el("div", { class: "scroll" }, el("table", {},
+    el("thead", {}, el("tr", {}, cols.map(c => el("th", { class: c.num ? "num" : "" }, c.label)))),
+    el("tbody", {}, rows.map(r => el("tr", {}, cols.map(c => el("td", { class: c.num ? "num" : "" }, c.get(r))))))));
+}
+function chartCard(title, subtitle, chart, tableCols, tableRows, key) {
+  return el("div", { class: "card" }, el("h3", {}, title), subtitle ? el("div", { class: "sub", style: "margin:-6px 0 8px" }, subtitle) : null,
+    chart, keep("tbl:" + key, el("details", {}, el("summary", {}, "Show as a table"), tableOf(tableCols, tableRows))));
+}
+
+const tipEl = document.getElementById("tip");
+function showTip(evt, lines) {
+  tipEl.replaceChildren(...lines.map(([v, k]) => el("div", {}, el("span", { class: "v" }, v), k ? el("span", { class: "k" }, "  " + k) : null)));
+  tipEl.style.display = "block";
+  const x = evt.clientX + 14, y = evt.clientY + 14, w = tipEl.offsetWidth, h = tipEl.offsetHeight;
+  tipEl.style.left = Math.min(x, innerWidth - w - 8) + "px";
+  tipEl.style.top = (y + h > innerHeight - 8 ? evt.clientY - h - 10 : y) + "px";
+}
+const hideTip = () => { tipEl.style.display = "none"; };
+
+function niceMax(v) {
+  if (v <= 0) return 1;
+  const p = Math.pow(10, Math.floor(Math.log10(v))), m = v / p;
+  return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p;
+}
+function niceCeil(v, n = 4) { if (v <= 0) return 1; const step = niceMax(v / n); return Math.ceil(v / step - 1e-9) * step || step; }
+const durShort = s => s < 120 ? Math.round(s) + "s" : s < 7200 ? Math.round(s / 60) + "m" : (s / 3600).toFixed(1).replace(/\.0$/, "") + "h";
+function ticks(max, n = 4) { const step = niceMax(max / n); const out = []; for (let t = 0; t <= max + 1e-9; t += step) out.push(t); return out; }
+
+function lineChart(points, o) {
+  const wrap = el("div", {});
+  const draw = () => {
+    const W = Math.max(280, wrap.clientWidth || 520), H = 220, m = { l: 44, r: 20, t: 14, b: 36 };
+    const xs = points.map(p => p.x), xMax = Math.max(1e-9, ...xs), yMax = niceCeil(Math.max(1, ...points.map(p => p.y)));
+    const X = x => m.l + (W - m.l - m.r) * x / xMax, Y = y => H - m.b - (H - m.t - m.b) * y / yMax;
+    const s = svg("svg", { width: W, height: H, role: "img", "aria-label": o.title });
+    for (const t of ticks(yMax)) {
+      s.append(svg("line", { x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), stroke: t ? "var(--grid)" : "var(--axis)", "stroke-width": 1 }));
+      s.append(Object.assign(svg("text", { x: m.l - 6, y: Y(t) + 4, "text-anchor": "end" }), { textContent: compact(t) }));
+    }
+    for (const t of ticks(xMax, 4)) {
+      s.append(Object.assign(svg("text", { x: X(t), y: H - m.b + 16, "text-anchor": "middle" }), { textContent: (o.axisFmt || o.xFmt)(t) }));
+    }
+    s.append(Object.assign(svg("text", { x: W - m.r, y: H - 4, "text-anchor": "end" }), { textContent: o.xLabel }));
+    if (points.length) {
+      let d = `M${X(0)},${Y(0)}`;
+      for (const p of points) d += `H${X(p.x)}V${Y(p.y)}`;
+      s.append(svg("path", { d: d + `V${Y(0)}Z`, fill: "var(--series-1-wash)", stroke: "none" }));
+      s.append(svg("path", { d, fill: "none", stroke: "var(--series-1)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+      const last = points[points.length - 1];
+      s.append(svg("circle", { cx: X(last.x), cy: Y(last.y), r: 4, fill: "var(--series-1)", stroke: "var(--surface)", "stroke-width": 2 }));
+      s.append(Object.assign(svg("text", { x: Math.min(X(last.x), W - m.r) - 6, y: Y(last.y) - 9, "text-anchor": "end", class: "ink" }), { textContent: o.yFmt(last.y) }));
+    }
+    const hair = svg("line", { y1: m.t, y2: H - m.b, stroke: "var(--axis)", "stroke-width": 1, visibility: "hidden" });
+    const dot = svg("circle", { r: 4, fill: "var(--series-1)", stroke: "var(--surface)", "stroke-width": 2, visibility: "hidden" });
+    const hit = svg("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent" });
+    s.append(hair, dot, hit);
+    hit.addEventListener("pointermove", e => {
+      if (!points.length) return;
+      const bx = s.getBoundingClientRect().left, x = (e.clientX - bx - m.l) / (W - m.l - m.r) * xMax;
+      const p = points.reduce((a, b) => Math.abs(b.x - x) < Math.abs(a.x - x) ? b : a);
+      for (const n of [hair, dot]) n.setAttribute("visibility", "visible");
+      hair.setAttribute("x1", X(p.x)); hair.setAttribute("x2", X(p.x));
+      dot.setAttribute("cx", X(p.x)); dot.setAttribute("cy", Y(p.y));
+      showTip(e, [[o.yFmt(p.y), o.yName], [o.xFmt(p.x), o.xLabel], p.note ? [p.note, ""] : null].filter(Boolean));
+    });
+    hit.addEventListener("pointerleave", () => { hideTip(); hair.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); });
+    wrap.replaceChildren(s);
+  };
+  requestAnimationFrame(draw);
+  wrap._draw = draw;
+  return wrap;
+}
+
+function roundTop(x, y, w, h, r) {
+  r = Math.min(r, w / 2, h);
+  return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`;
+}
+
+function stackedColumns(cats, counts, o) {
+  const wrap = el("div", {});
+  const legend = el("div", { class: "legend" }, STACK.map(k => el("span", {}, el("span", { class: "sw", style: `background:${STATUS[k].color}` }), STATUS[k].label)));
+  const area = el("div", {});
+  wrap.append(legend, area);
+  const draw = () => {
+    const W = Math.max(280, area.clientWidth || 520), H = 220, m = { l: 36, r: 12, t: 12, b: 36 };
+    const totals = counts.map(c => STACK.reduce((a, k) => a + (c[k] || 0), 0));
+    const yMax = niceCeil(Math.max(1, ...totals)), band = (W - m.l - m.r) / Math.max(1, cats.length), bw = Math.min(24, band * 0.6);
+    const Y = v => H - m.b - (H - m.t - m.b) * v / yMax;
+    const s = svg("svg", { width: W, height: H, role: "img", "aria-label": o.title });
+    for (const t of ticks(yMax)) {
+      s.append(svg("line", { x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), stroke: t ? "var(--grid)" : "var(--axis)" }));
+      s.append(Object.assign(svg("text", { x: m.l - 6, y: Y(t) + 4, "text-anchor": "end" }), { textContent: compact(t) }));
+    }
+    cats.forEach((cat, i) => {
+      const x = m.l + band * i + (band - bw) / 2;
+      let acc = 0;
+      const present = STACK.filter(k => counts[i][k]);
+      present.forEach((k, j) => {
+        const v = counts[i][k], y0 = Y(acc), y1 = Y(acc + v), top = j === present.length - 1;
+        const h = Math.max(0, y0 - y1 - (j ? 2 : 0)); // small gap between segments
+        const shape = top ? svg("path", { d: roundTop(x, y1, bw, h, 4), fill: STATUS[k].color })
+                          : svg("rect", { x, y: y1, width: bw, height: h, fill: STATUS[k].color });
+        shape.setAttribute("tabindex", "0");
+        const tipLines = () => [[String(v), STATUS[k].label], [o.catName + " " + cat, ""], [`${totals[i]} lemmas in total`, ""]];
+        shape.addEventListener("pointermove", e => showTip(e, tipLines()));
+        shape.addEventListener("pointerleave", hideTip);
+        shape.addEventListener("focus", e => { const r = shape.getBoundingClientRect(); showTip({ clientX: r.right, clientY: r.top }, tipLines()); });
+        shape.addEventListener("blur", hideTip);
+        s.append(shape);
+        acc += v;
+      });
+      if (totals[i]) s.append(Object.assign(svg("text", { x: x + bw / 2, y: Y(totals[i]) - 5, "text-anchor": "middle", class: "ink" }), { textContent: totals[i] }));
+      s.append(Object.assign(svg("text", { x: x + bw / 2, y: H - m.b + 16, "text-anchor": "middle" }), { textContent: cat }));
+    });
+    s.append(Object.assign(svg("text", { x: W - m.r, y: H - 4, "text-anchor": "end" }), { textContent: o.xLabel }));
+    area.replaceChildren(s);
+  };
+  requestAnimationFrame(draw);
+  wrap._draw = draw;
+  return wrap;
+}
+
+function hbars(items, o) {
+  const wrap = el("div", {});
+  const draw = () => {
+    if (!items.length) { wrap.replaceChildren(el("div", { class: "empty" }, o.empty || "Nothing recorded yet.")); return; }
+    const W = Math.max(280, wrap.clientWidth || 520), row = 26, lw = Math.min(200, W * 0.38), m = { t: 4, r: 48 };
+    const H = m.t * 2 + row * items.length, max = Math.max(...items.map(i => i.value), 1);
+    const s = svg("svg", { width: W, height: H, role: "img", "aria-label": o.title });
+    items.forEach((it, i) => {
+      const y = m.t + row * i, w = Math.max(2, (W - lw - m.r) * it.value / max), bh = 14;
+      const label = it.label.length > 30 ? it.label.slice(0, 27) + "..." : it.label;
+      s.append(Object.assign(svg("text", { x: lw - 8, y: y + row / 2 + 4, "text-anchor": "end", class: "ink" }), { textContent: label }));
+      const bar = svg("path", { d: `M${lw},${y + (row - bh) / 2}H${lw + w - 4}Q${lw + w},${y + (row - bh) / 2} ${lw + w},${y + (row - bh) / 2 + 4}V${y + (row + bh) / 2 - 4}Q${lw + w},${y + (row + bh) / 2} ${lw + w - 4},${y + (row + bh) / 2}H${lw}Z`, fill: it.color || "var(--series-1)" });
+      const hit = svg("rect", { x: 0, y, width: W, height: row, fill: "transparent", tabindex: "0" });
+      const lines = () => [[o.fmt ? o.fmt(it.value) : compact(it.value), it.label]];
+      hit.addEventListener("pointermove", e => showTip(e, lines()));
+      hit.addEventListener("pointerleave", hideTip);
+      s.append(bar, Object.assign(svg("text", { x: lw + w + 6, y: y + row / 2 + 4, class: "ink" }), { textContent: o.fmt ? o.fmt(it.value) : compact(it.value) }), hit);
+    });
+    wrap.replaceChildren(s);
+  };
+  requestAnimationFrame(draw);
+  wrap._draw = draw;
+  return wrap;
+}
+
+function lemmaColumns(rows, o) {
+  const wrap = el("div", {});
+  const legend = el("div", { class: "legend" }, [...STACK, "pending"].map(k => el("span", {}, el("span", { class: "sw", style: `background:${STATUS[k].color}` }), STATUS[k].label)));
+  const area = el("div", {});
+  wrap.append(legend, area);
+  const draw = () => {
+    const W = Math.max(280, area.clientWidth || 520), H = 200, m = { l: 44, r: 8, t: 10, b: 24 };
+    const max = niceCeil(Math.max(1, ...rows.map(r => o.value(r) || 0)));
+    const band = (W - m.l - m.r) / Math.max(1, rows.length), bw = Math.max(1, Math.min(10, band - 2));
+    const Y = v => H - m.b - (H - m.t - m.b) * v / max;
+    const s = svg("svg", { width: W, height: H, role: "img", "aria-label": o.title });
+    for (const t of ticks(max)) {
+      s.append(svg("line", { x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), stroke: t ? "var(--grid)" : "var(--axis)" }));
+      s.append(Object.assign(svg("text", { x: m.l - 6, y: Y(t) + 4, "text-anchor": "end" }), { textContent: (o.axisFmt || o.fmt)(t) }));
+    }
+    rows.forEach((r, i) => {
+      const v = o.value(r) || 0, x = m.l + band * i + (band - bw) / 2, h = Math.max(v ? 2 : 0, Y(0) - Y(v));
+      s.append(svg("path", { d: roundTop(x, Y(0) - h, bw, h, Math.min(4, bw / 2)), fill: STATUS[r.status || "pending"].color }));
+      const hit = svg("rect", { x: m.l + band * i, y: m.t, width: band, height: H - m.t - m.b, fill: "transparent" });
+      hit.addEventListener("pointermove", e => showTip(e, [[o.fmt(v), r.name], [STATUS[r.status || "pending"].label, ""]]));
+      hit.addEventListener("pointerleave", hideTip);
+      if (r.href) hit.addEventListener("click", () => { location.hash = r.href; });
+      hit.style.cursor = r.href ? "pointer" : "default";
+      s.append(hit);
+    });
+    s.append(Object.assign(svg("text", { x: m.l, y: H - 6 }), { textContent: "first lemma" }));
+    s.append(Object.assign(svg("text", { x: W - m.r, y: H - 6, "text-anchor": "end" }), { textContent: "last lemma" }));
+    area.replaceChildren(s);
+  };
+  requestAnimationFrame(draw);
+  wrap._draw = draw;
+  return wrap;
+}
+
+function toolTimeline(timeline, o) {
+  const wrap = el("div", {});
+  const draw = () => {
+    if (!timeline.length) { wrap.replaceChildren(el("div", { class: "empty" }, "No tool calls.")); return; }
+    const tools = [...new Set(timeline.map(c => c.name))];
+    const W = Math.max(280, wrap.clientWidth || 520), row = 24, lw = Math.min(190, W * 0.35), m = { t: 6, b: 28, r: 14 };
+    const H = m.t + row * tools.length + m.b, tMax = Math.max(1, o.seconds || 0, ...timeline.map(c => c.t_end || c.t));
+    const X = t => lw + (W - lw - m.r) * t / tMax;
+    const s = svg("svg", { width: W, height: H, role: "img", "aria-label": "Tool calls over time" });
+    tools.forEach((t, i) => {
+      const y = m.t + row * i + row / 2;
+      s.append(svg("line", { x1: lw, x2: W - m.r, y1: y, y2: y, stroke: "var(--grid)" }));
+      s.append(Object.assign(svg("text", { x: lw - 8, y: y + 4, "text-anchor": "end", class: "ink" }), { textContent: t.replace(/^mcp__rocq__/, "rocq:") }));
+    });
+    for (const tk of ticks(tMax, 4)) s.append(Object.assign(svg("text", { x: X(tk), y: H - 10, "text-anchor": "middle" }), { textContent: durShort(tk) }));
+    timeline.forEach(c => {
+      const y = m.t + row * tools.indexOf(c.name) + row / 2;
+      const dot = svg("circle", { cx: X(c.t), cy: y, r: 4, fill: c.error ? "var(--surface)" : "var(--series-1)", stroke: c.error ? "var(--critical)" : "var(--surface)", "stroke-width": 2 });
+      const hit = svg("circle", { cx: X(c.t), cy: y, r: 12, fill: "transparent" });
+      hit.addEventListener("pointermove", e => showTip(e, [[dur(c.t), c.name + (c.error ? " (error)" : "")], [c.input.slice(0, 160), ""]]));
+      hit.addEventListener("pointerleave", hideTip);
+      s.append(dot, hit);
+    });
+    wrap.replaceChildren(el("div", { class: "legend" }, el("span", {}, el("span", { class: "sw", style: "background:var(--series-1);border-radius:50%" }), "tool call"),
+      el("span", {}, el("span", { class: "sw", style: "border:2px solid var(--critical);border-radius:50%" }), "tool call that returned an error")), s);
+  };
+  requestAnimationFrame(draw);
+  wrap._draw = draw;
+  return wrap;
+}
+
+const lemmaDir = r => pad3(r.index) + "-" + r.name;
+function reasonKind(r) {
+  if (r.status === "rejected") return "broke a rule: " + r.reason.replace(/ of .*| \(.*/, "");
+  if (r.timed_out) return "stopped at the time limit";
+  if (/do not build/.test(r.reason)) return "proof does not build";
+  if (/still ends with Admitted/.test(r.reason)) return "gave up (left Admitted)";
+  return r.reason || "other";
+}
+function lengthBucket(n) { return n <= 5 ? "1-5" : n <= 15 ? "6-15" : n <= 40 ? "16-40" : "41+"; }
+
+async function loadRun(id) {
+  const [meta, summary, live, graph] = await Promise.all([
+    getJSON(RUNS + id + "/meta.json"), getJSON(RUNS + id + "/summary.json", { headline: {}, curve: [], rows: [] }),
+    getJSON(RUNS + id + "/live.json", null), getJSON("../deps/graph.json", [])]);
+  const done = new Map(summary.rows.map(r => [r.name, r]));
+  const order = graph.slice(0, meta.lemmas || graph.length);
+  const rows = order.map((g, i) => done.get(g.name) || { index: i, name: g.name, file: g.file, level: g.level, status: "pending", original_proof_lines: g.proof.split("\n").filter(l => l.trim()).length });
+  return { meta, summary, live, graph, rows };
+}
+
+async function viewOverview(app, showFake) {
+  ui.showFake = showFake;
+  const index = (await getJSON(RUNS + "index.json", [])).slice().reverse();
+  const runs = index.filter(r => ui.showFake || !r.fake);
+  const graph = await getJSON("../deps/graph.json", []);
+  const summaries = await Promise.all(runs.slice(0, 12).map(r => getJSON(RUNS + r.id + "/summary.json", { rows: [] })));
+  const key = JSON.stringify([index, summaries.map(s => s.headline), ui.showFake]);
+  if (key === lastData) return false;
+  lastData = key;
+  document.getElementById("crumbs").replaceChildren("All runs");
+  const fakeToggle = el("label", {}, el("input", { type: "checkbox", checked: ui.showFake, onchange: e => { location.hash = e.target.checked ? "#/all" : "#/"; } }), " Show test runs (fake agent)");
+  const cols = [
+    { label: "Run", get: r => el("a", { href: "#/run/" + r.id }, r.id) },
+    { label: "Model", get: r => r.fake ? "fake agent" : r.model },
+    { label: "Tools", get: r => r.tools },
+    { label: "Status", get: r => r.status === "running" ? el("span", {}, el("span", { class: "pulse" }), "running") : r.status },
+    { label: "Started", get: r => when(r.started) },
+    { label: "Progress", num: true, get: r => r.headline ? `${r.headline.done} / ${r.headline.total}` : "-" },
+    { label: "Proved", num: true, get: r => r.headline ? `${r.headline.proved + r.headline.proved_flagged} (${pct(r.headline.proved + r.headline.proved_flagged, r.headline.done)})` : "-" },
+    { label: "of which flagged", num: true, get: r => r.headline ? r.headline.proved_flagged : "-" },
+    { label: "Failed", num: true, get: r => r.headline ? r.headline.failed : "-" },
+    { label: "Rejected", num: true, get: r => r.headline ? r.headline.rejected : "-" },
+    { label: "Time", num: true, get: r => r.headline ? dur(r.headline.seconds) : "-" },
+    { label: "Cost (est.)", num: true, get: r => r.headline ? money(r.headline.cost_usd) : "-" },
+  ];
+  const parts = [el("h2", {}, "Runs"), el("div", { class: "filters" }, fakeToggle)];
+  if (!runs.length) {
+    parts.push(el("div", { class: "card empty" }, index.length ? "Only test runs so far. Tick the box above to see them." : "No runs yet. Start one with bench/run.py (see bench/README.md)."));
+  } else {
+    parts.push(el("div", { class: "card" }, tableOf(cols, runs)));
+    parts.push(el("h2", {}, "Lemma outcomes across runs"), el("p", { class: "sub" }, "One row per run (newest first, up to 12), one cell per lemma in benchmark order. Hover a cell for the lemma, click it to open that attempt."));
+    parts.push(el("div", { class: "card" }, matrix(runs.slice(0, 12), summaries, graph)));
+  }
+  app.replaceChildren(...parts);
+  return true;
+}
+
+function matrix(runs, summaries, graph) {
+  const legend = el("div", { class: "legend" }, [...STACK, "pending"].map(k => el("span", {}, el("span", { class: "sw", style: `background:${STATUS[k].color}` }), STATUS[k].label)));
+  const cell = 10, gap = 2, lw = 230, fileGap = 6;
+  let x = lw; const xs = [];
+  graph.forEach((g, i) => { if (i && g.file !== graph[i - 1].file) x += fileGap; xs.push(x); x += cell + gap; });
+  const top = 34, W = x + 8, H = top + 6 + runs.length * (cell + 8);
+  const s = svg("svg", { width: W, height: H, role: "img", "aria-label": "Lemma outcomes across runs" });
+  let fileNo = 0; // alternate rows so short file names don't overlap
+  graph.forEach((g, i) => { if (!i || g.file !== graph[i - 1].file) s.append(Object.assign(svg("text", { x: xs[i], y: fileNo++ % 2 ? 26 : 12 }), { textContent: g.file.replace(/^BitmapAllocator/, "").replace(/\.v$/, "") })); });
+  runs.forEach((r, j) => {
+    const y = top + j * (cell + 8), byName = new Map((summaries[j].rows || []).map(row => [row.name, row]));
+    s.append(Object.assign(svg("text", { x: lw - 8, y: y + cell - 1, "text-anchor": "end", class: "ink" }), { textContent: (r.fake ? "fake | " : "") + r.id }));
+    graph.forEach((g, i) => {
+      const row = byName.get(g.name), st = row ? row.status : "pending";
+      const c = svg("rect", { x: xs[i], y, width: cell, height: cell, rx: 2, fill: STATUS[st].color, class: "matrix-cell", tabindex: row ? "0" : "-1" });
+      const lines = [[STATUS[st].label, ""], [g.name, g.file], row ? [dur(row.seconds), "time"] : null].filter(Boolean);
+      c.addEventListener("pointermove", e => showTip(e, lines));
+      c.addEventListener("pointerleave", hideTip);
+      if (row) { c.style.cursor = "pointer"; c.addEventListener("click", () => { location.hash = `#/run/${r.id}/${lemmaDir(row)}`; }); }
+      s.append(c);
+    });
+  });
+  const tbl = keep("tbl:matrix", el("details", {}, el("summary", {}, "Show as a table"), tableOf(
+    [{ label: "Lemma", get: g => g.name }, ...runs.map((r, j) => ({ label: r.id, get: g => { const row = (summaries[j].rows || []).find(x => x.name === g.name); return STATUS[row ? row.status : "pending"].label; } }))], graph)));
+  return el("div", {}, legend, el("div", { class: "scroll" }, s), tbl);
+}
+
+async function viewRun(app, id) {
+  const d = await loadRun(id);
+  const key = JSON.stringify([d.meta.status, d.summary, d.live && [d.live.recent, d.live.status, d.live.lemma], ui.filters, ui.sort]);
+  if (key === lastData) return false;
+  lastData = key;
+  const { meta, summary, live, rows } = d, h = summary.headline || {};
+  document.getElementById("crumbs").replaceChildren(el("a", { href: "#/" }, "All runs"), " / " + id);
+  const attempted = rows.filter(r => r.status !== "pending");
+  const provedAll = (h.proved || 0) + (h.proved_flagged || 0);
+  const tokens = k => attempted.reduce((a, r) => a + ((r.tokens || {})[k] || 0), 0);
+  const parts = [];
+  parts.push(el("h2", {}, meta.fake ? "Test run (fake agent)" : meta.model, el("span", { class: "sub", style: "font-weight:400" }, `  |  tools: ${meta.tools}  |  ${meta.status}`)));
+  parts.push(el("div", { class: "card" }, el("div", { class: "hero" },
+    el("div", {}, el("div", { class: "big" }, pct(provedAll, h.done)), el("div", { class: "sub" }, `of attempted lemmas proved (${provedAll} of ${h.done || 0}; ${meta.lemmas} in this run)`)),
+    el("div", {}, el("div", { style: "font-size:22px;font-weight:600" }, pct(h.proved || 0, h.done)), el("div", { class: "sub" }, "proved without relying on any admitted lemma")))));
+  parts.push(el("div", { class: "grid tiles", style: "margin-top:12px" },
+    tile("Proved", h.proved ?? 0), tile("Proved, but flagged", h.proved_flagged ?? 0, "relies on an admitted lemma"),
+    tile("Failed", h.failed ?? 0), tile("Rejected", h.rejected ?? 0, "broke a rule"),
+    tile("Time", dur(h.seconds)), tile("Cost", money(h.cost_usd), meta.fake ? "fake numbers" : "Claude Code's estimate"),
+    tile("Tokens in / out", compact(tokens("input_tokens") + tokens("cache_read_input_tokens") + tokens("cache_creation_input_tokens")) + " / " + compact(tokens("output_tokens")), "input includes cache reads"),
+    tile("Tool calls", compact(attempted.reduce((a, r) => a + (r.tool_calls || 0), 0))),
+    tile("Rocq compiles", compact(attempted.reduce((a, r) => a + (r.rocq_runs || 0), 0)), compact(attempted.reduce((a, r) => a + (r.rocq_failed || 0), 0)) + " failed")));
+
+  if (live && meta.status === "running") {
+    parts.push(el("h2", {}, el("span", { class: "pulse" }), "Live"));
+    parts.push(el("div", { class: "card live" },
+      el("div", {}, el("strong", {}, live.lemma), el("span", { class: "sub" }, `  in ${live.file}  |  lemma ${live.index + 1} of ${meta.lemmas}  |  attempt ${live.attempt}  |  running for ${dur((live.now || Date.now() / 1000) - live.started)}`)),
+      el("div", { class: "sub", style: "margin:6px 0" }, Object.entries(live.tool_counts || {}).map(([k, v]) => `${k} ${v}`).join("  |  ") || "no tool calls yet"),
+      tableOf([{ label: "At", num: true, get: e => dur(e.t) }, { label: "What", get: e => e.kind }, { label: "Detail", get: e => el("span", { style: "white-space:normal" }, e.text) }], (live.recent || []).slice().reverse())));
+  }
+
+  const curve = summary.curve || [];
+  const byLevel = {}, byLen = {}, toolTotals = {}, errTotals = {}, reasons = {};
+  for (const r of attempted) {
+    (byLevel[r.level] ??= {})[r.status] = (byLevel[r.level][r.status] || 0) + 1;
+    const b = lengthBucket(r.original_proof_lines || 0);
+    (byLen[b] ??= {})[r.status] = (byLen[b][r.status] || 0) + 1;
+    for (const [k, v] of Object.entries(r.tool_counts || {})) toolTotals[k] = (toolTotals[k] || 0) + v;
+    for (const [k, v] of Object.entries(r.error_kinds || {})) errTotals[k] = (errTotals[k] || 0) + v;
+    if (r.status === "failed" || r.status === "rejected") { const k = reasonKind(r); reasons[k] = (reasons[k] || 0) + 1; }
+  }
+  const levels = Object.keys(byLevel).map(Number).sort((a, b) => a - b);
+  const lens = ["1-5", "6-15", "16-40", "41+"].filter(b => byLen[b]);
+  const sortedItems = o => Object.entries(o).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
+  const statusCols = cat => [{ label: cat, get: x => x.cat }, ...STACK.map(k => ({ label: STATUS[k].label, num: true, get: x => x.c[k] || 0 }))];
+  parts.push(el("h2", {}, "Charts"));
+  parts.push(el("div", { class: "grid charts" },
+    chartCard("Lemmas proved over time", "Running count, including flagged proofs", lineChart(curve.map(p => ({ x: p.seconds, y: p.proved, note: rows[p.i] && rows[p.i].name })), { title: "Lemmas proved over time", xFmt: dur, axisFmt: durShort, yFmt: String, yName: "lemmas proved", xLabel: "elapsed" }),
+      [{ label: "After lemma", get: p => (rows[p.i] || {}).name }, { label: "Elapsed", num: true, get: p => dur(p.seconds) }, { label: "Proved", num: true, get: p => p.proved }], curve, "curve-time"),
+    curve.some(p => p.cost) ? chartCard("Lemmas proved against estimated cost", "Running count against Claude Code's cost estimate", lineChart(curve.map(p => ({ x: p.cost, y: p.proved, note: rows[p.i] && rows[p.i].name })), { title: "Lemmas proved against cost", xFmt: money, yFmt: String, yName: "lemmas proved", xLabel: "cost (est.)" }),
+      [{ label: "After lemma", get: p => (rows[p.i] || {}).name }, { label: "Cost", num: true, get: p => money(p.cost) }, { label: "Proved", num: true, get: p => p.proved }], curve, "curve-cost") : null,
+    chartCard("Outcome by dependency level", "Level 0 uses no other project lemma; level n uses lemmas up to level n-1", stackedColumns(levels.map(String), levels.map(l => byLevel[l]), { title: "Outcome by dependency level", catName: "level", xLabel: "dependency level" }),
+      statusCols("Level"), levels.map(l => ({ cat: l, c: byLevel[l] })), "by-level"),
+    chartCard("Outcome by length of the original proof", "Non-blank lines in the human-written proof", stackedColumns(lens, lens.map(b => byLen[b]), { title: "Outcome by original proof length", catName: "original proof lines", xLabel: "original proof lines" }),
+      statusCols("Original proof lines"), lens.map(b => ({ cat: b, c: byLen[b] })), "by-length"),
+    chartCard("Time per lemma", "Benchmark order; click a column to open the lemma", lemmaColumns(rows.map(r => ({ ...r, href: r.status !== "pending" ? `#/run/${id}/${lemmaDir(r)}` : null })), { title: "Time per lemma", value: r => r.seconds, fmt: dur, axisFmt: durShort }),
+      [{ label: "Lemma", get: r => r.name }, { label: "Outcome", get: r => badge(r.status) }, { label: "Time", num: true, get: r => dur(r.seconds) }], attempted, "time-per-lemma"),
+    chartCard("Tool calls by tool", "All attempts in this run", hbars(sortedItems(toolTotals), { title: "Tool calls by tool" }),
+      [{ label: "Tool", get: x => x.label }, { label: "Calls", num: true, get: x => x.value }], sortedItems(toolTotals), "tools"),
+    chartCard("Rocq errors by kind", "Error messages seen in tool results", hbars(sortedItems(errTotals), { title: "Rocq errors by kind", empty: "No Rocq errors recorded." }),
+      [{ label: "Kind", get: x => x.label }, { label: "Errors", num: true, get: x => x.value }], sortedItems(errTotals), "errors"),
+    chartCard("Why lemmas were not proved", "Failed and rejected lemmas", hbars(sortedItems(reasons), { title: "Why lemmas were not proved", empty: "Every attempted lemma was proved." }),
+      [{ label: "Reason", get: x => x.label }, { label: "Lemmas", num: true, get: x => x.value }], sortedItems(reasons), "reasons"),
+  ));
+
+  parts.push(el("h2", {}, "Lemmas"));
+  const files = [...new Set(rows.map(r => r.file))];
+  const f = ui.filters;
+  const filters = el("div", { class: "filters" },
+    el("select", { "aria-label": "Outcome", onchange: e => { f.status = e.target.value; lastData = ""; render(); } },
+      el("option", { value: "" }, "All outcomes"), [...STACK, "pending"].map(k => el("option", { value: k, selected: f.status === k }, STATUS[k].label))),
+    el("select", { "aria-label": "File", onchange: e => { f.file = e.target.value; lastData = ""; render(); } },
+      el("option", { value: "" }, "All files"), files.map(x => el("option", { value: x, selected: f.file === x }, x))),
+    el("label", {}, el("input", { type: "checkbox", checked: !!f.flagged, onchange: e => { f.flagged = e.target.checked; lastData = ""; render(); } }), " Only lemmas with flags"),
+    el("input", { type: "search", placeholder: "Search lemma names", value: f.q || "", oninput: e => { f.q = e.target.value; clearTimeout(viewRun._t); viewRun._t = setTimeout(() => { lastData = ""; render(); }, 250); } }));
+  let shown = rows.filter(r => (!f.status || r.status === f.status) && (!f.file || r.file === f.file) && (!f.flagged || (r.flags || []).length) && (!f.q || r.name.toLowerCase().includes(f.q.toLowerCase())));
+  const cols = [
+    { key: "index", label: "#", num: true, get: r => r.index + 1 },
+    { key: "name", label: "Lemma", get: r => r.status === "pending" ? r.name : el("a", { href: `#/run/${id}/${lemmaDir(r)}` }, r.name) },
+    { key: "file", label: "File", get: r => r.file },
+    { key: "level", label: "Level", num: true, get: r => r.level },
+    { key: "status", label: "Outcome", get: r => badge(r.status) },
+    { key: "attempts", label: "Tries", num: true, get: r => r.attempts ?? "" },
+    { key: "seconds", label: "Time", num: true, get: r => r.status === "pending" ? "" : dur(r.seconds) },
+    { key: "turns", label: "Turns", num: true, get: r => r.turns ?? "" },
+    { key: "tool_calls", label: "Tool calls", num: true, get: r => r.tool_calls ?? "" },
+    { key: "target_checks", label: "Checks of the file", num: true, get: r => r.target_checks ?? "" },
+    { key: "target_checks_until_success", label: "Checks until it built", num: true, get: r => r.target_checks_until_success ?? "" },
+    { key: "errors", label: "Rocq errors", num: true, get: r => r.errors ?? "" },
+    { key: "tokens", label: "Output tokens", num: true, get: r => r.tokens ? compact(r.tokens.output_tokens) : "", sortVal: r => r.tokens ? r.tokens.output_tokens : -1 },
+    { key: "cost_usd", label: "Cost (est.)", num: true, get: r => r.status === "pending" ? "" : money(r.cost_usd) },
+    { key: "proof_lines", label: "Proof lines (original)", num: true, get: r => r.proof_lines != null && r.status.startsWith("proved") ? `${r.proof_lines} (${r.original_proof_lines})` : `(${r.original_proof_lines ?? "-"})` },
+    { key: "similarity_to_original", label: "Similar to original", num: true, get: r => r.similarity_to_original != null ? Math.round(100 * r.similarity_to_original) + "%" : "" },
+    { key: "searches", label: "Web searches / fetches", num: true, get: r => r.status === "pending" ? "" : `${r.searches} / ${r.fetches}` },
+    { key: "self_report", label: "Agent said", get: r => r.self_report || "" },
+    { key: "flags", label: "Flags", get: r => (r.flags || []).length ? el("span", { title: r.flags.join("\n") }, r.flags.length) : "", sortVal: r => (r.flags || []).length },
+  ];
+  const sc = cols.find(c => c.key === ui.sort.key) || cols[0];
+  const val = r => sc.sortVal ? sc.sortVal(r) : (r[sc.key] ?? -1);
+  shown = shown.slice().sort((a, b) => (val(a) > val(b) ? 1 : val(a) < val(b) ? -1 : 0) * ui.sort.dir);
+  const table = el("table", {},
+    el("thead", {}, el("tr", {}, cols.map(c => el("th", { class: (c.num ? "num " : "") + "sortable", "aria-sort": ui.sort.key === c.key ? (ui.sort.dir > 0 ? "ascending" : "descending") : null,
+      onclick: () => { ui.sort = { key: c.key, dir: ui.sort.key === c.key ? -ui.sort.dir : 1 }; lastData = ""; render(); } }, c.label + (ui.sort.key === c.key ? (ui.sort.dir > 0 ? " (asc)" : " (desc)") : ""))))),
+    el("tbody", {}, shown.map(r => el("tr", {}, cols.map(c => el("td", { class: c.num ? "num" : "" }, c.get(r)))))));
+  parts.push(filters, el("div", { class: "card scroll" }, table, el("div", { class: "muted", style: "margin-top:6px" }, `${shown.length} of ${rows.length} lemmas shown`)));
+
+  parts.push(el("h2", {}, "Run settings"));
+  parts.push(el("div", { class: "card" }, el("dl", { class: "kv" }, [
+    ["Run", meta.id], ["Model", meta.fake ? "fake agent (no model calls)" : meta.model], ["Rocq tools", meta.tools === "mcp" ? "coqc/coqtop and rocq-mcp" : "coqc/coqtop only"],
+    ["Time limit per attempt", dur(meta.time_limit)], ["Turn limit", meta.max_turns || "none"], ["Attempts per lemma", meta.attempts],
+    ["Lemmas in this run", meta.lemmas], ["Commit", `${(meta.git_commit || "").slice(0, 10)} on ${meta.git_branch}`], ["Claude Code", meta.claude_code_version],
+    ["Disabled MCP tools", (meta.disabled_tools || []).join(", ") || "none"], ["Blocked hosts", (meta.blocked_hosts || []).join("  ")],
+    ["Started", when(meta.started)], ["Finished", when(meta.finished)], ["Times resumed", meta.resumed || 0],
+  ].map(([k, v]) => [el("dt", {}, k), el("dd", {}, String(v))]))));
+  app.replaceChildren(...parts);
+  return true;
+}
+
+async function viewLemma(app, id, dir) {
+  const meta = await getJSON(RUNS + id + "/meta.json");
+  const base = RUNS + id + "/lemmas/" + dir + "/";
+  const res = await getJSON(base + "result.json", null);
+  const graph = await getJSON("../deps/graph.json", []);
+  const name = dir.slice(4), g = graph.find(x => x.name === name) || { proof: "", deps: [] };
+  const live = meta.status === "running" ? await getJSON(RUNS + id + "/live.json", null) : null;
+  const n = res ? res.attempts : (live && live.lemma === name ? live.attempt : 0);
+  const attempts = [];
+  for (let i = 1; i <= n; i++) attempts.push(await getJSON(base + `attempt-${i}/result.json`, null));
+  const key = JSON.stringify([res, attempts.map(a => a && a.seconds), live && live.recent]);
+  if (key === lastData) return false;
+  lastData = key;
+  document.getElementById("crumbs").replaceChildren(el("a", { href: "#/" }, "All runs"), " / ", el("a", { href: "#/run/" + id }, id), " / " + name);
+  const parts = [el("h2", {}, name, el("span", { class: "sub", style: "font-weight:400" }, `  |  ${g.file || ""}  |  level ${g.level ?? "?"}`))];
+  if (!res) {
+    parts.push(el("div", { class: "card live" }, el("span", { class: "pulse" }), "This lemma is being attempted now. The details appear when the attempt ends; the run page shows live progress."));
+    app.replaceChildren(...parts);
+    return true;
+  }
+  parts.push(el("div", { class: "card" }, el("div", { style: "font-size:18px" }, badge(res.status)), res.reason ? el("div", { class: "sub", style: "margin-top:4px" }, res.reason) : null,
+    (res.flags || []).length ? el("ul", { class: "flags", style: "margin-top:8px" }, res.flags.map(x => el("li", {}, x))) : null));
+  parts.push(el("div", { class: "grid tiles", style: "margin-top:12px" },
+    tile("Time", dur(res.seconds), res.timed_out ? "hit the time limit" : null), tile("Attempts", res.attempts), tile("Turns", res.turns),
+    tile("Tool calls", res.tool_calls, res.tool_errors + " returned errors"), tile("Checks of the file", res.target_checks, res.target_checks_until_success ? `built on check ${res.target_checks_until_success}` : null),
+    tile("Rocq errors", res.errors), tile("Output tokens", compact(res.tokens.output_tokens)), tile("Cost", money(res.cost_usd), meta.fake ? "fake numbers" : "estimate"),
+    tile("Agent said", res.self_report || "nothing")));
+  const last = attempts[attempts.length - 1];
+  const proof = last && last.check && last.check.proof;
+  parts.push(el("h2", {}, "Proof"), el("div", { class: "two" },
+    el("div", { class: "card" }, el("h3", {}, "Agent's proof" + (res.status.startsWith("proved") ? "" : " (last attempt, not accepted)")), el("pre", {}, proof || "(none)"),
+      res.proof_lines != null ? el("div", { class: "muted" }, lines(res.proof_lines) + (res.similarity_to_original != null ? `, ${Math.round(100 * res.similarity_to_original)}% similar to the original` : "")) : null),
+    el("div", { class: "card" }, el("h3", {}, "Original proof"), el("pre", {}, g.proof || "(the original was Admitted)"), el("div", { class: "muted" }, lines(res.original_proof_lines)))));
+  const used = new Set(res.deps_used || []), orig = new Set(res.original_deps || []);
+  if (used.size || orig.size) {
+    const all = [...new Set([...orig, ...used])].sort();
+    parts.push(el("div", { class: "card", style: "margin-top:12px" }, el("h3", {}, "Project lemmas used"), tableOf(
+      [{ label: "Lemma", get: x => x }, { label: "Original proof", get: x => orig.has(x) ? "used" : "" }, { label: "Agent's proof", get: x => used.has(x) ? "used" : "" },
+       { label: "Still admitted", get: x => (res.relies_on_admitted || []).includes(x) ? "yes" : "" }], all)));
+  }
+  attempts.forEach((a, i) => {
+    if (!a) return;
+    const kids = [];
+    kids.push(el("div", { class: "sub" }, `${dur(a.seconds)}  |  ${a.turns} turns  |  ${a.tool_calls} tool calls  |  checker: ${a.check.status}${a.check.reason ? " (" + a.check.reason + ")" : ""}`));
+    kids.push(el("h3", { style: "margin-top:12px" }, "Tool calls over time"), toolTimeline(a.timeline || [], { seconds: a.seconds }));
+    kids.push(keep(`calls:${dir}:${i}`, el("details", {}, el("summary", {}, `Every tool call (${(a.timeline || []).length})`), tableOf(
+      [{ label: "At", num: true, get: c => dur(c.t) }, { label: "Tool", get: c => c.name + (c.sub ? " (subagent)" : "") }, { label: "Error", get: c => c.error ? "yes" : "" },
+       { label: "Input", get: c => el("pre", { style: "min-width:260px;max-width:520px" }, c.input) }, { label: "Result", get: c => el("pre", { style: "min-width:260px;max-width:520px" }, c.result) }], a.timeline || []))));
+    if ((a.error_samples || []).length) kids.push(keep(`err:${dir}:${i}`, el("details", {}, el("summary", {}, `Rocq errors (${a.errors})`), tableOf(
+      [{ label: "At", num: true, get: e => dur(e.t) }, { label: "Kind", get: e => e.kind }, { label: "Message", get: e => el("span", { style: "white-space:normal" }, e.message) }], a.error_samples))));
+    const web = [];
+    for (const s of a.searches || []) web.push({ kind: "search", what: s.query, extra: s.urls.join("\n") });
+    for (const f of a.fetched || []) web.push({ kind: f.via === "bash" ? "URL in a shell command" : "fetch", what: f.url, extra: "" });
+    kids.push(keep(`web:${dir}:${i}`, el("details", {}, el("summary", {}, `Web use (${web.length}) and sites contacted (${Object.keys(a.proxy_hosts || {}).length})`),
+      web.length ? tableOf([{ label: "Kind", get: w => w.kind }, { label: "Query or URL", get: w => el("span", { style: "white-space:normal" }, w.what) }, { label: "Result URLs", get: w => w.extra ? el("pre", {}, w.extra) : "" }], web) : el("div", { class: "muted" }, "No searches or fetches."),
+      el("h3", { style: "margin-top:10px" }, "Sites the proxy saw"),
+      tableOf([{ label: "Host", get: x => x[0] }, { label: "Connections", num: true, get: x => x[1] }], Object.entries(a.proxy_hosts || {}).sort((x, y) => y[1] - x[1])))));
+    kids.push(keep(`final:${dir}:${i}`, el("details", {}, el("summary", {}, "Agent's last message"), el("pre", {}, a.final_message || "(none)"))));
+    if (a.check.build_log) kids.push(keep(`build:${dir}:${i}`, el("details", {}, el("summary", {}, "Checker build output"), el("pre", {}, a.check.build_log))));
+    const promptBox = el("pre", {}, "Loading...");
+    const pd = keep(`prompt:${dir}:${i}`, el("details", {}, el("summary", {}, "Prompt given to the agent"), promptBox));
+    getText(base + `attempt-${i + 1}/prompt.md`).then(t => { promptBox.textContent = t || "(not found)"; });
+    kids.push(pd);
+    parts.push(el("h2", {}, `Attempt ${i + 1}`), el("div", { class: "card" }, kids));
+  });
+  app.replaceChildren(...parts);
+  return true;
+}
+
+async function render() {
+  clearTimeout(timer);
+  const app = document.getElementById("app");
+  const [, route, id, dir] = location.hash.split("/");
+  let live = false;
+  try {
+    if (route === "run" && id && dir) { await viewLemma(app, decodeURIComponent(id), decodeURIComponent(dir)); live = true; }
+    else if (route === "run" && id) { await viewRun(app, decodeURIComponent(id)); live = true; }
+    else { await viewOverview(app, route === "all"); live = true; }
+  } catch (e) {
+    app.replaceChildren(el("div", { class: "card" }, el("h3", {}, "Could not load the data"), el("p", { class: "sub" }, String(e.message || e)),
+      el("p", { class: "sub" }, "Serve the bench folder, e.g. python3 -m http.server --bind 127.0.0.1 --directory bench 8000, then open http://127.0.0.1:8000/dashboard/")));
+  }
+  if (live) timer = setTimeout(render, 4000);
+}
+addEventListener("hashchange", () => { lastData = ""; ui.filters = {}; scrollTo(0, 0); render(); });
+let rs;
+addEventListener("resize", () => { clearTimeout(rs); rs = setTimeout(() => document.querySelectorAll("div").forEach(d => d._draw && d._draw()), 150); });
+const themes = ["auto", "light", "dark"];
+function setTheme(t) {
+  if (t === "auto") document.documentElement.removeAttribute("data-theme"); else document.documentElement.setAttribute("data-theme", t);
+  document.getElementById("theme").textContent = "Theme: " + t;
+  try { localStorage.setItem("theme", t); } catch {}
+}
+document.getElementById("theme").addEventListener("click", () => {
+  let cur = "auto"; try { cur = localStorage.getItem("theme") || "auto"; } catch {}
+  setTheme(themes[(themes.indexOf(cur) + 1) % 3]);
+});
+try { setTheme(localStorage.getItem("theme") || "auto"); } catch { setTheme("auto"); }
+render();
+</script>
+</body>
+</html>
