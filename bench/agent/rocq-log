@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+import json, os, subprocess, sys, time
+
+me = os.path.abspath(__file__)
+t0 = time.time()
+code = subprocess.call([me + ".real", *sys.argv[1:]])
+try:
+    with open("/logs/rocq.jsonl", "a") as f:
+        f.write(json.dumps({"t": t0, "secs": round(time.time() - t0, 3), "tool": os.path.basename(me),
+                            "args": sys.argv[1:], "cwd": os.getcwd(), "exit": code}) + "\n")
+except OSError:
+    pass
+sys.exit(code)

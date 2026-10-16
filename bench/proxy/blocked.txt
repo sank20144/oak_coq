@@ -1,0 +1,16 @@
+# these keep copies of the original proofs
+(^|\.)github\.com$
+(^|\.)githubusercontent\.com$
+(^|\.)github\.io$
+(^|\.)zenodo\.org$
+(^|\.)softwareheritage\.org$
+(^|\.)archive\.org$
+# these serve files from any public github repo
+(^|\.)jsdelivr\.net$
+(^|\.)githack\.com$
+(^|\.)statically\.io$
+(^|\.)gitingest\.com$
+(^|\.)uithub\.com$
+(^|\.)deepwiki\.com$
+(^|\.)gitmcp\.io$
+(^|\.)sourcegraph\.com$

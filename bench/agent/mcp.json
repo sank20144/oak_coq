@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "rocq": {
+      "command": "/home/coq/rocq-mcp/.venv/bin/rocq-mcp",
+      "env": {
+        "ROCQ_WORKSPACE": "/home/coq/work"
+      }
+    }
+  }
+}
