@@ -25,8 +25,9 @@ admitted `.v` files.
    outcome.
    - **Rejected** means the agent changed anything outside that lemma's proof,
      ended the proof with the wrong word (`Qed`, or `Defined` for
-     `PageSize_eq_dec`), used `admit`/`Admitted`/`Abort`/`give_up`, or switched
-     off a Rocq check.
+     `PageSize_eq_dec`), used `admit`/`Admitted`/`Abort`/`give_up`, put any
+     other command into the proof (for example closing it early and declaring
+     a new axiom after it), or switched off a Rocq check.
    - **Failed** means the proof still ends in `Admitted` or doesn't build.
    - **Proved** means it builds in a fresh `oak-coq-toolchain` container with no
      network.
@@ -122,6 +123,10 @@ each lemma.
 
     bench/run.py --fake --limit 15 --time-limit 60 \
       --fake-plan '{"eq_length_repeat":"wrong","get_bit_bounds":"fail","set_bit_bounds":"violate","get_bit_set_bit_same":"sleep"}'
+
+`python3 bench/test/test_check.py` checks the rule checks on their own. All
+original proofs must pass them, and a list of tricks (edited statement, admit,
+an axiom after `Qed`, and so on) must be rejected.
 
 The modes are `prove` (writes the original proof, the default), `fail`,
 `wrong`, `violate`, `sleep` and `apierror`. Test runs are hidden on the

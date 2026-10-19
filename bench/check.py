@@ -4,6 +4,13 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "deps"))
 from lemmas import locate
 
 FORBIDDEN = re.compile(r'\b(admit|Admitted|Abort|give_up)\b')
+ENDINGS = {"Qed", "Defined", "Admitted", "Abort", "Save"}
+DECLARATIONS = {"Axiom", "Axioms", "Parameter", "Parameters", "Hypothesis", "Hypotheses", "Variable",
+                "Variables", "Conjecture", "Context", "Lemma", "Theorem", "Corollary", "Proposition", "Fact",
+                "Remark", "Example", "Definition", "Fixpoint", "CoFixpoint", "Inductive", "CoInductive",
+                "Record", "Structure", "Class", "Instance", "Existing", "Program", "Equations", "Let",
+                "Module", "Section", "End", "Require", "Import", "Export", "Notation", "Ltac", "Hint",
+                "Arguments", "Opaque", "Transparent", "Strategy", "Set", "Unset", "Declare"}
 # axioms the original proofs already rely on
 BASELINE = re.compile(r'^(PrimInt63|Uint63)\.|(^|\.)bitarray_fits_uint63$')
 # lines like "foo is assumed to be guarded" mean a check was turned off
@@ -22,6 +29,15 @@ def strip_comments(s):
                 out.append(s[i])
             i += 1
     return "".join(out)
+
+
+def commands(code):
+    out = []
+    for sentence in re.split(r'\.(?=\s|$)', code):
+        rest = re.sub(r'^(?:[-+*{}\s]|#\[[^\]]*\]|(?:Local|Global|Polymorphic|Monomorphic)\s)*', '', sentence)
+        if rest:
+            out.append(rest.split(None, 1)[0])
+    return out
 
 
 def without_ending(proof):
@@ -58,6 +74,11 @@ def check(before, after, lemma, file, ending, names, timeout=900):
     bad = sorted(set(FORBIDDEN.findall(code)))
     if bad:
         return {**r, "status": "rejected", "reason": "the proof uses " + ", ".join(bad)}
+    cmds = commands(code)
+    if any(c in ENDINGS for c in cmds[:-1]):
+        return {**r, "status": "rejected", "reason": "the proof closes early and adds commands after it"}
+    if decl := sorted({c for c in cmds if c in DECLARATIONS}):
+        return {**r, "status": "rejected", "reason": "the proof contains " + ", ".join(decl)}
 
     mod = file[:-2]
     query = (f"From OC Require Import {mod}.\nPrint Assumptions {lemma}.\n"
