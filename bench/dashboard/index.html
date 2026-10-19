@@ -569,6 +569,7 @@ async function viewRun(app, id) {
   parts.push(el("h2", {}, "Run settings"));
   parts.push(el("div", { class: "card" }, el("dl", { class: "kv" }, [
     ["Run", meta.id], ["Model", meta.fake ? "fake agent (no model calls)" : meta.model], ["Rocq tools", meta.tools === "mcp" ? "coqc/coqtop and rocq-mcp" : "coqc/coqtop only"],
+    ["Internet", meta.internet === "none" ? "none (only Claude Code's API)" : "on, minus the blocked hosts"],
     ["Time limit per attempt", dur(meta.time_limit)], ["Turn limit", meta.max_turns || "none"], ["Attempts per lemma", meta.attempts],
     ["Lemmas in this run", meta.lemmas], ["Commit", `${(meta.git_commit || "").slice(0, 10)} on ${meta.git_branch}`], ["Claude Code", meta.claude_code_version],
     ["Disabled MCP tools", (meta.disabled_tools || []).join(", ") || "none"], ["Blocked hosts", (meta.blocked_hosts || []).join("  ")],

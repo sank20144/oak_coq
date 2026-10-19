@@ -70,6 +70,11 @@ def reset_workspace(ws, files):
         os.chmod(ws / f, 0o666)
 
 
+def disabled_tools(args):
+    # WebSearch goes through Anthropic, not our proxy, so offline mode turns it off
+    return (MCP_DISABLED if args.tools == "mcp" else []) + (["WebSearch", "WebFetch"] if args.internet == "none" else [])
+
+
 def similarity(a, b):
     norm = lambda s: " ".join(s.split())
     return round(difflib.SequenceMatcher(None, norm(a), norm(b)).ratio(), 3) if a and b else None
@@ -83,6 +88,7 @@ class Run:
             self.meta = json.loads((self.dir / "meta.json").read_text())
             for k in ("model", "tools", "time_limit", "max_turns", "attempts", "fake", "fake_plan"):
                 setattr(args, k, self.meta[k])
+            args.internet = self.meta.get("internet", "filtered")
             args.limit = args.limit or self.meta.get("limit", 0)
             if not args.fake and not os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
                 sys.exit(NO_TOKEN)
@@ -93,12 +99,12 @@ class Run:
             self.dir.mkdir(parents=True)
             self.meta = dict(
                 id=self.dir.name, model=args.model, tools=args.tools, time_limit=args.time_limit,
-                max_turns=args.max_turns, attempts=args.attempts, fake=args.fake, fake_plan=args.fake_plan, limit=args.limit,
+                max_turns=args.max_turns, attempts=args.attempts, fake=args.fake, fake_plan=args.fake_plan, limit=args.limit, internet=args.internet,
                 git_commit=sh("git", "-C", str(REPO), "rev-parse", "HEAD").stdout.strip(),
                 git_branch=sh("git", "-C", str(REPO), "rev-parse", "--abbrev-ref", "HEAD").stdout.strip(),
                 claude_code_version=sh("docker", "run", "--rm", "--network", "none", AGENT_IMAGE,
                                        "claude", "--version").stdout.strip(),
-                blocked_hosts=[b.pattern for b in BLOCKED], disabled_tools=MCP_DISABLED if args.tools == "mcp" else [],
+                blocked_hosts=[b.pattern for b in BLOCKED], disabled_tools=disabled_tools(args),
                 started=time.time())
             ws = self.dir / "workspace"
             ws.mkdir()
@@ -160,7 +166,8 @@ class Run:
         sh("docker", "rm", "-f", self.proxy)
         sh("docker", "network", "rm", self.net)
         for cmd in (["docker", "network", "create", "--internal", self.net],
-                    ["docker", "run", "-d", "--name", self.proxy, PROXY_IMAGE],
+                    ["docker", "run", "-d", "--name", self.proxy, PROXY_IMAGE,
+                     *(["tinyproxy", "-d", "-c", "/etc/tinyproxy/offline.conf"] if self.args.internet == "none" else [])],
                     ["docker", "network", "connect", self.net, self.proxy]):
             r = sh(*cmd)
             if r.returncode:
@@ -191,7 +198,7 @@ class Run:
         cmd = ["docker", "run", "--rm", "--name", name, "--network", self.net,
                "-e", f"HTTPS_PROXY={proxy_url}", "-e", f"HTTP_PROXY={proxy_url}",
                "-e", f"https_proxy={proxy_url}", "-e", f"http_proxy={proxy_url}", "-e", "NO_PROXY=localhost,127.0.0.1",
-               "-e", "DISABLE_AUTOUPDATER=1",
+               "-e", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
                "-v", f"{self.ws}:/home/coq/work", "-v", f"{logs}:/logs"]
         if self.args.fake:
             (adir / "fake_proof.txt").write_text(self.graph[lem["name"]]["proof"])
@@ -204,11 +211,11 @@ class Run:
                     "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions"]
             if self.args.max_turns:
                 cmd += ["--max-turns", str(self.args.max_turns)]
+            cmd += ["--strict-mcp-config"]
             if self.args.tools == "mcp":
-                cmd += ["--mcp-config", "/home/coq/mcp.json", "--strict-mcp-config",
-                        "--disallowedTools", *MCP_DISABLED]
-            else:
-                cmd += ["--strict-mcp-config"]
+                cmd += ["--mcp-config", "/home/coq/mcp.json"]
+            if off := disabled_tools(self.args):
+                cmd += ["--disallowedTools", *off]
 
         events, t0 = [], time.time()
         live = dict(run=self.dir.name, index=idx, lemma=lem["name"], file=lem["file"], attempt=n,
@@ -356,6 +363,8 @@ def main():
     ap.add_argument("--model", default="claude-opus-5-5", help="e.g. claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5")
     ap.add_argument("--tools", choices=["cli", "mcp"], default="cli",
                     help="cli: coqc/coqtop only; mcp: also the rocq-mcp server")
+    ap.add_argument("--internet", choices=["filtered", "none"], default="filtered",
+                    help="filtered: the web minus the blocked sites; none: only Claude Code's own API")
     ap.add_argument("--time-limit", type=int, default=1800, help="seconds per attempt (default 1800)")
     ap.add_argument("--max-turns", type=int, default=0, help="turn limit per attempt (default: none)")
     ap.add_argument("--attempts", type=int, default=1, help="attempts per lemma, i.e. the k in pass@k (default 1)")
