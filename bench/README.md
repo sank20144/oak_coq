@@ -71,6 +71,7 @@ container as an environment variable and is never written to disk.
 | `--model` | `claude-opus-5-5` | Any model Claude Code accepts, e.g. `claude-sonnet-5-5`, `claude-haiku-5-5` |
 | `--tools` | `cli` | `cli` gives the agent coqc/coqtop only. `mcp` also gives it the rocq-mcp server |
 | `--internet` | `filtered` | `filtered` allows the web except the blocked hosts. `none` lets the agent reach only Claude Code's own API (`proxy/allowed.txt`) and switches off its WebSearch and WebFetch tools |
+| `--effort` | Claude Code's default | The model's effort level: `low`, `medium`, `high`, `xhigh` or `max` |
 | `--time-limit` | `1800` | Seconds per attempt |
 | `--max-turns` | none | Turn limit per attempt |
 | `--attempts` | `1` | Attempts per lemma, each in a fresh session (pass@k) |

@@ -89,6 +89,7 @@ class Run:
             for k in ("model", "tools", "time_limit", "max_turns", "attempts", "fake", "fake_plan"):
                 setattr(args, k, self.meta[k])
             args.internet = self.meta.get("internet", "filtered")
+            args.effort = self.meta.get("effort")
             args.limit = args.limit or self.meta.get("limit", 0)
             if not args.fake and not os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
                 sys.exit(NO_TOKEN)
@@ -99,7 +100,7 @@ class Run:
             self.dir.mkdir(parents=True)
             self.meta = dict(
                 id=self.dir.name, model=args.model, tools=args.tools, time_limit=args.time_limit,
-                max_turns=args.max_turns, attempts=args.attempts, fake=args.fake, fake_plan=args.fake_plan, limit=args.limit, internet=args.internet,
+                max_turns=args.max_turns, attempts=args.attempts, fake=args.fake, fake_plan=args.fake_plan, limit=args.limit, internet=args.internet, effort=args.effort,
                 git_commit=sh("git", "-C", str(REPO), "rev-parse", "HEAD").stdout.strip(),
                 git_branch=sh("git", "-C", str(REPO), "rev-parse", "--abbrev-ref", "HEAD").stdout.strip(),
                 claude_code_version=sh("docker", "run", "--rm", "--network", "none", AGENT_IMAGE,
@@ -211,6 +212,8 @@ class Run:
                     "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions"]
             if self.args.max_turns:
                 cmd += ["--max-turns", str(self.args.max_turns)]
+            if self.args.effort:
+                cmd += ["--effort", self.args.effort]
             cmd += ["--strict-mcp-config"]
             if self.args.tools == "mcp":
                 cmd += ["--mcp-config", "/home/coq/mcp.json"]
@@ -363,6 +366,8 @@ def main():
     ap.add_argument("--model", default="claude-opus-5-5", help="e.g. claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5")
     ap.add_argument("--tools", choices=["cli", "mcp"], default="cli",
                     help="cli: coqc/coqtop only; mcp: also the rocq-mcp server")
+    ap.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"],
+                    help="the model's effort level (default: Claude Code's own default)")
     ap.add_argument("--internet", choices=["filtered", "none"], default="filtered",
                     help="filtered: the web minus the blocked sites; none: only Claude Code's own API")
     ap.add_argument("--time-limit", type=int, default=1800, help="seconds per attempt (default 1800)")
