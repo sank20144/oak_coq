@@ -611,7 +611,7 @@ async function viewLemma(app, id, dir) {
   parts.push(el("h2", {}, "Proof"), el("div", { class: "two" },
     el("div", { class: "card" }, el("h3", {}, "Agent's proof" + (res.status.startsWith("proved") ? "" : " (last attempt, not accepted)")), el("pre", {}, proof || "(none)"),
       res.proof_lines != null ? el("div", { class: "muted" }, lines(res.proof_lines) + (res.similarity_to_original != null ? `, ${Math.round(100 * res.similarity_to_original)}% similar to the original` : "")) : null),
-    el("div", { class: "card" }, el("h3", {}, "Original proof"), el("pre", {}, g.proof || "(the original was Admitted)"), el("div", { class: "muted" }, lines(res.original_proof_lines)))));
+    el("div", { class: "card" }, el("h3", {}, "Original proof"), el("pre", {}, g.proof ? `${g.proof}\n${g.ending}.` : "(the original was Admitted)"), el("div", { class: "muted" }, lines(res.original_proof_lines)))));
   const used = new Set(res.deps_used || []), orig = new Set(res.original_deps || []);
   if (used.size || orig.size) {
     const all = [...new Set([...orig, ...used])].sort();
