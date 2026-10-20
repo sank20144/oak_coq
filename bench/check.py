@@ -12,7 +12,7 @@ DECLARATIONS = {"Axiom", "Axioms", "Parameter", "Parameters", "Hypothesis", "Hyp
                 "Module", "Section", "End", "Require", "Import", "Export", "Notation", "Ltac", "Hint",
                 "Arguments", "Opaque", "Transparent", "Strategy", "Set", "Unset", "Declare"}
 # axioms the original proofs already rely on
-BASELINE = re.compile(r'^(PrimInt63|Uint63)\.|(^|\.)bitarray_fits_uint63$')
+BASELINE = re.compile(r'^(PrimInt63|Uint63)\.')
 # lines like "foo is assumed to be guarded" mean a check was turned off
 UNSAFE = re.compile(r'^\S.* (is assumed to be|relies on) ', re.M)
 

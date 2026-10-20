@@ -25,8 +25,6 @@ Lemma get_bit_bounds :
 Proof.
 Admitted.
 
-Axiom bitarray_fits_uint63 : forall n, (Z.of_nat ((to_nat n) * u64_bits) < wB)%Z.
-
 (** Out-of-bounds set_bit is identity *)
 Lemma set_bit_bounds : 
   forall {n : Uint63.int} (bits : BitArray n) idx value,
@@ -53,6 +51,7 @@ Admitted.
 
 Lemma first_one_returns_true : 
   forall {n : Uint63.int} (bits : BitArray n) (idx : Uint63.int),
+    (Z.of_nat ((to_nat n) * u64_bits) < wB)%Z ->
     first_one_from_zero bits = Some idx -> 
     get_bit bits idx = true.
 Proof.

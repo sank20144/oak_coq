@@ -101,6 +101,8 @@ Admitted.
 Theorem allocate_frame_correctness 
   (p : prog_state) (self : var_name) :
 
+  (Z.of_nat (to_nat n * u64_bits) < wB)%Z ->
+
   (exists alloc, read_allocator p self = Some alloc /\ 
     @allocator_wf S n alloc) ->
   
