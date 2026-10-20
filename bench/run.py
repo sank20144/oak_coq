@@ -9,7 +9,7 @@ bench/runs/<run id>/.
   bench/run.py --model claude-opus-5-5 --tools cli
   bench/run.py --resume <run id>          # carry on after an interruption
 """
-import argparse, difflib, json, os, re, shutil, string, subprocess, sys, threading, time
+import argparse, difflib, functools, http.server, json, os, re, shutil, string, subprocess, sys, threading, time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -361,6 +361,21 @@ class Run:
             write_json(self.dir / "live.json", {**live, "status": self.meta["status"], "now": time.time()})
 
 
+class QuietHandler(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+
+def serve_dashboard(port=8000):
+    try:
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", port), functools.partial(QuietHandler, directory=str(BENCH)))
+    except OSError as e:
+        print(f"dashboard server not started ({e})", file=sys.stderr)
+        return
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    print(f"dashboard: http://127.0.0.1:{port}/dashboard/", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--model", default="claude-opus-5-5", help="e.g. claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5")
@@ -384,6 +399,7 @@ def main():
     for img in (AGENT_IMAGE, PROXY_IMAGE, TOOLCHAIN_IMAGE):
         if sh("docker", "image", "inspect", img).returncode:
             sys.exit(f"missing docker image {img}; see bench/README.md")
+    serve_dashboard()
     Run(args).go()
 
 

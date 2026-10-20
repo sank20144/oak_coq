@@ -84,10 +84,11 @@ the later lemmas. `rocq_switch` changes opam switch, and the image has only one.
 
 ## Dashboard
 
-    python3 -m http.server --bind 127.0.0.1 --directory bench 8000
+`run.py` serves the dashboard while a run is going and prints its address,
+http://127.0.0.1:8000/dashboard/. It refreshes every few seconds, so you can
+watch the run live. To look at results when no run is going, serve it by hand.
 
-Then open http://127.0.0.1:8000/dashboard/. It refreshes every few seconds, so
-you can watch a run live.
+    python3 -m http.server --bind 127.0.0.1 --directory bench 8000
 
 - **All runs** lists every run, with a grid of lemma outcomes across runs.
 - **Run page** shows the headline numbers and the live view. It has charts of
