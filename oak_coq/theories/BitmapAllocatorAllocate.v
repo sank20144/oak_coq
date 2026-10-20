@@ -26,6 +26,8 @@ Context {S : PageSize} {n : Uint63.int}.
 Theorem allocate_frame_correctness 
   (p : prog_state) (self : var_name) :
 
+  (Z.of_nat (to_nat n * u64_bits) < wB)%Z ->
+
   (exists alloc, read_allocator p self = Some alloc /\ 
     @allocator_wf S n alloc) ->
   
@@ -48,7 +50,7 @@ Theorem allocate_frame_correctness
   | Panic => False  
   end.
 Proof.
-  intros [alloc [Hread Hwf]] Hprecond.
+  intros Hfits [alloc [Hread Hwf]] Hprecond.
   destruct Hprecond as [a [lt [m [Hvar_lookup [Hactive [Hstep_bound Hheap]]]]]].
   unfold allocate_frame.
   
@@ -103,7 +105,7 @@ Proof.
     exact Hfirst. }
   
   assert (Havailable: get_bit (get_available (allocated alloc_read) (valid alloc_read)) frame_idx_val = true).
-  { apply first_one_returns_true. exact Hfirst. }
+  { apply first_one_returns_true; [exact Hfits | exact Hfirst]. }
   
   unfold get_available in Havailable.
   rewrite bitand_get_bit in Havailable.

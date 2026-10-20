@@ -30,8 +30,6 @@ Proof.
   - reflexivity.
 Qed.
 
-Axiom bitarray_fits_uint63 : forall n, (Z.of_nat ((to_nat n) * u64_bits) < wB)%Z.
-
 (** Out-of-bounds set_bit is identity *)
 Lemma set_bit_bounds : 
   forall {n : Uint63.int} (bits : BitArray n) idx value,
@@ -299,10 +297,11 @@ Qed.
 
 Lemma first_one_returns_true : 
   forall {n : Uint63.int} (bits : BitArray n) (idx : Uint63.int),
+    (Z.of_nat ((to_nat n) * u64_bits) < wB)%Z ->
     first_one_from_zero bits = Some idx -> 
     get_bit bits idx = true.
 Proof.
-  intros n bits idx H.
+  intros n bits idx Hfits H.
   unfold first_one_from_zero in H.
   destruct (find (fun i => Z.testbit (bv_unsigned bits) (Z.of_nat i)) (seq 0 ((to_nat n) * u64_bits))) as [i|] eqn:Hfind; [|discriminate].
   injection H as H. subst idx.
@@ -321,7 +320,7 @@ Proof.
     split; [lia | ].
     apply Nat2Z.inj_lt in Hi_bound.
     apply (Z.lt_trans _ (Z.of_nat ((to_nat n) * u64_bits)) _); [lia | ].
-    apply bitarray_fits_uint63.
+    exact Hfits.
   }
   rewrite Hbound.
   
@@ -331,7 +330,7 @@ Proof.
     split; [lia | ].
     apply Nat2Z.inj_lt in Hi_bound.
     apply (Z.lt_trans _ (Z.of_nat ((to_nat n) * u64_bits)) _); [lia | ].
-    apply bitarray_fits_uint63.
+    exact Hfits.
   }
   
   rewrite Heq.

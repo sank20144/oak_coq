@@ -67,6 +67,8 @@ Qed.
 Theorem allocate_frame_preserves_wf {S : PageSize} {n : Uint63.int}
   (p : prog_state) (self : var_name) :
 
+  (Z.of_nat (to_nat n * u64_bits) < wB)%Z ->
+
   (exists alloc, read_allocator p self = Some alloc /\
     @allocator_wf S n alloc) ->
 
@@ -83,12 +85,12 @@ Theorem allocate_frame_preserves_wf {S : PageSize} {n : Uint63.int}
   | Panic => False
   end.
 Proof.
-  intros [alloc [Hread Hwf]] Hprecond.
+  intros Hfits [alloc [Hread Hwf]] Hprecond.
   destruct Hprecond as [a [lt [m [Hvar_lookup [Hactive [Hstep_bound Hheap]]]]]].
 
   assert (Hstep_bound4: ps_current_step p + 6 <= lt_end lt) by exact Hstep_bound.
 
-  pose proof (@allocate_frame_correctness S n p self
+  pose proof (@allocate_frame_correctness S n p self Hfits
                 (ex_intro _ alloc (conj Hread Hwf))
                 (ex_intro _ a (ex_intro _ lt (ex_intro _ m
                    (conj Hvar_lookup (conj Hactive (conj Hstep_bound Hheap)))))))
@@ -143,7 +145,7 @@ Proof.
     exact Hfirst. }
 
   assert (Havailable: get_bit (get_available (allocated alloc) (valid alloc)) frame_idx_val = true).
-  { apply first_one_returns_true. exact Hfirst. }
+  { apply first_one_returns_true; [exact Hfits | exact Hfirst]. }
 
   unfold get_available in Havailable.
   rewrite bitand_get_bit in Havailable.
@@ -318,7 +320,6 @@ Proof.
       unfold bv_modulus. simpl.
       rewrite Z_of_N_of_nat.
       apply Nat.ltb_lt in Hlt.
-      pose proof (bitarray_fits_uint63 n) as Hfits.
       unfold total_bits in *.
       lia.
   - reflexivity.

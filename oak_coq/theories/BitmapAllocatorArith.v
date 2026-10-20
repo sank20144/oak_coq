@@ -81,14 +81,11 @@ Proof.
     apply in_seq in Hin.
     destruct Hin as [_ Hi_bound].
     rewrite of_Z_spec.
-    rewrite Zmod_small.
-    + rewrite Nat2Z.id. exact Hi_bound.
-    + split.
-      * lia.
-      * apply Nat2Z.inj_lt in Hi_bound.
-        apply (Z.lt_trans _ (Z.of_nat (to_nat n * u64_bits)) _).
-        -- exact Hi_bound.
-        -- apply bitarray_fits_uint63.
+    assert (Hmod: (0 <= Z.of_nat i mod wB <= Z.of_nat i)%Z).
+    { split.
+      - apply Z.mod_pos_bound. reflexivity.
+      - apply Z.mod_le; [lia | reflexivity]. }
+    lia.
   - discriminate H.
 Qed.
 
@@ -97,15 +94,16 @@ Lemma first_one_some_implies_nonzero_count {n : Uint63.int} (bits : BitArray n) 
   count_ones bits > 0.
 Proof.
   intros H.
-  assert (H_bit_true: get_bit bits idx = true).
-  { apply first_one_returns_true; exact H. }
-  
-  assert (H_idx_bound: Uint63.to_nat idx < to_nat n * u64_bits).
-  { apply (first_one_from_zero_lt bits); exact H. }
+  unfold first_one_from_zero in H.
+  destruct (find (fun i => Z.testbit (bv_unsigned bits) (Z.of_nat i)) (seq 0 (to_nat n * u64_bits))) as [i|] eqn:Hfind; [|discriminate H].
+  apply find_some in Hfind.
+  destruct Hfind as [Hin H_bit_true].
+  apply in_seq in Hin.
 
   destruct (count_ones bits) eqn:Hcount.
-  - pose proof (count_ones_zero_all_false bits Hcount idx) as H_bit_false.
-    rewrite H_bit_true in H_bit_false.
+  - unfold count_ones in Hcount.
+    pose proof (count_ones_helper_zero_implies_all_false bits 0 (to_nat n * u64_bits) 0 Hcount i) as H_bit_false.
+    rewrite H_bit_false in H_bit_true by lia.
     discriminate.
   - lia.
 Qed.
