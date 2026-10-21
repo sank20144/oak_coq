@@ -26,7 +26,8 @@ Replace `Admitted.` with a complete proof that ends with `$ending`.
    fact, prove it inside the proof, for example with `assert`.
 4. You may use any lemma, definition or tactic that is in scope at that point,
    including the project's own Ltac. Earlier lemmas are in scope, and some of
-   them may still be `Admitted`. Later lemmas are not in scope.
+   them may still be `Admitted`. You may use those too and treat them as true.
+   Later lemmas are not in scope.
 5. You have about $minutes minutes, after which the attempt is stopped.
 
 ## Checking your work
